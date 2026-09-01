@@ -175,6 +175,11 @@ function getTaskFolder(title: string): Exclude<TaskFolder, "すべて"> {
   return "マークなし";
 }
 
+function changeTaskFolder(title: string, folder: Exclude<TaskFolder, "すべて">) {
+  const cleanTitle = title.replace(/[🔴🟠]/gu, "").trim();
+  return folder === "マークなし" ? cleanTitle : `${folder} ${cleanTitle}`;
+}
+
 function normalizeEntries(value: unknown): TimeEntry[] {
   if (!Array.isArray(value)) return [];
   return value.map((item, index) => {
@@ -934,6 +939,7 @@ function ManagedTaskCard({ task, onUpdate, onDelete, onAddGoogle, isGoogleConnec
       <div className="task-accent" />
       <div className="managed-task-main">
         <div className="managed-task-top">
+          <select aria-label="フォルダ" value={getTaskFolder(task.title)} onChange={(event) => void onUpdate(task.id, { title: changeTaskFolder(task.title, event.target.value as Exclude<TaskFolder, "すべて">) })}><option value="🔴">🔴</option><option value="🟠">🟠</option><option value="マークなし">マークなし</option></select>
           <select aria-label="状態" value={task.status} onChange={(event) => void onUpdate(task.id, { status: event.target.value as WorkTask["status"] })}><option>未着手</option><option>作業中</option><option>確認中</option><option>完了</option></select>
           <select aria-label="優先度" value={task.priority} onChange={(event) => void onUpdate(task.id, { priority: event.target.value as WorkTask["priority"] })}><option>高</option><option>中</option><option>低</option></select>
           {task.source_meeting_id ? <span className="meeting-source">会議ToDo</span> : null}
