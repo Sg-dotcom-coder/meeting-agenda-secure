@@ -561,6 +561,26 @@ export default function Home() {
     }
   }
 
+  async function createWorkTask() {
+    setSaveState("saving");
+    const { data, error } = await supabase.from("work_tasks").insert({
+      title: "新しいタスク", category: "その他", assignee: "", status: "未着手", priority: "中",
+      due_date: null, shooting_date: null, related_url: "", notes: "", source_label: "手動作成",
+      sort_order: tasks.length ? Math.max(...tasks.map((task) => task.sort_order || 0)) + 1 : 1,
+    }).select("*").single();
+    if (error || !data) { setSaveState("error"); setMessage("タスクを作成できませんでした。"); return; }
+    setTasks((current) => [data as WorkTask, ...current]);
+    setSaveState("saved");
+  }
+
+  async function deleteWorkTask(id: number) {
+    setSaveState("saving");
+    const { error } = await supabase.from("work_tasks").delete().eq("id", id);
+    if (error) { setSaveState("error"); setMessage("タスクを削除できませんでした。ログイン状態をご確認ください。"); return; }
+    setTasks((current) => current.filter((task) => task.id !== id));
+    setSaveState("saved");
+  }
+
   function saveWorkRecord(kind: WorkRecordKind, person: string, workDate: string, payload: Record<string, unknown>) {
     const key = `${kind}:${person}:${workDate}`;
     setSaveState("saving");
@@ -670,7 +690,7 @@ export default function Home() {
         />
       )}
 
-      {page === "tasks" && <TaskWorkspace tasks={tasks} loading={loading} onUpdate={updateWorkTask} onAddGoogle={addToGoogleTasks} isGoogleConnected={Boolean(session && googleProviderToken)} onConnectGoogle={connectGoogle} />}
+      {page === "tasks" && <TaskWorkspace tasks={tasks} loading={loading} onUpdate={updateWorkTask} onCreate={createWorkTask} onDelete={deleteWorkTask} onAddGoogle={addToGoogleTasks} isGoogleConnected={Boolean(session && googleProviderToken)} onConnectGoogle={connectGoogle} />}
 
       {page === "schedule" && <WorkRecordWorkspace kind="schedule" records={workRecords} loading={loading} onSave={saveWorkRecord} onDelete={deleteWorkRecord} />}
       {page === "report" && <WorkRecordWorkspace kind="report" records={workRecords} loading={loading} onSave={saveWorkRecord} onDelete={deleteWorkRecord} />}
@@ -831,10 +851,12 @@ function Field({ label, value, tone = "", onChange }: { label: string; value: st
   return <label className={`field ${tone}`}><span>{label}</span><textarea value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
-function TaskWorkspace({ tasks, loading, onUpdate, onAddGoogle, isGoogleConnected, onConnectGoogle }: {
+function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoogle, isGoogleConnected, onConnectGoogle }: {
   tasks: WorkTask[];
   loading: boolean;
   onUpdate: (id: number, patch: Partial<WorkTask>) => Promise<void>;
+  onCreate: () => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
   onAddGoogle: (task: WorkTask) => Promise<boolean>;
   isGoogleConnected: boolean;
   onConnectGoogle: () => Promise<void>;
@@ -842,40 +864,49 @@ function TaskWorkspace({ tasks, loading, onUpdate, onAddGoogle, isGoogleConnecte
   const [person, setPerson] = useState("全員");
   const [status, setStatus] = useState("すべて");
   const [query, setQuery] = useState("");
+  const [priority, setPriority] = useState("すべて");
+  const [sort, setSort] = useState("期限が近い順");
   const visible = useMemo(() => tasks.filter((task) =>
     (person === "全員" || task.assignee === person) &&
     (status === "すべて" || task.status === status) &&
+    (priority === "すべて" || task.priority === priority) &&
     (!query || `${task.title} ${task.source_label} ${task.notes}`.toLowerCase().includes(query.toLowerCase())),
-  ), [tasks, person, status, query]);
+  ).sort((a, b) => sort === "期限が近い順"
+    ? (a.due_date || "9999-12-31").localeCompare(b.due_date || "9999-12-31") || a.sort_order - b.sort_order
+    : sort === "更新が新しい順" ? b.updated_at.localeCompare(a.updated_at) : a.sort_order - b.sort_order), [tasks, person, status, priority, query, sort]);
   const counts = useMemo(() => ({
-    all: tasks.length,
     open: tasks.filter((task) => task.status !== "完了").length,
-    done: tasks.filter((task) => task.status === "完了").length,
+    working: tasks.filter((task) => task.status === "作業中").length,
+    checking: tasks.filter((task) => task.status === "確認中").length,
+    overdue: tasks.filter((task) => task.status !== "完了" && task.due_date && task.due_date < today()).length,
   }), [tasks]);
 
   return (
     <section className="task-workspace">
       <div className="task-heading">
         <div><p className="eyebrow">TASK MANAGEMENT</p><h2>タスク管理</h2><p>会議のToDoを含む、すべての業務タスクを管理します。</p></div>
-        <div className="task-heading-actions">{!isGoogleConnected ? <button className="secondary-button" onClick={() => void onConnectGoogle()}>G Google Tasksを接続</button> : null}<div className="task-stats"><span><strong>{counts.all}</strong>すべて</span><span><strong>{counts.open}</strong>未完了</span><span><strong>{counts.done}</strong>完了</span></div></div>
+        <div className="task-heading-actions">{!isGoogleConnected ? <button className="secondary-button" onClick={() => void onConnectGoogle()}>G Google Tasksを接続</button> : null}<button className="primary-button" onClick={() => void onCreate()}>＋ 新しいタスク</button></div>
       </div>
       <div className="person-tabs">{["全員", ...people].map((item) => <button key={item} className={person === item ? "active" : ""} onClick={() => setPerson(item)}>{item}</button>)}</div>
+      <div className="task-stats"><span><strong>{counts.open}</strong>未完了</span><span><strong>{counts.working}</strong>作業中</span><span><strong>{counts.checking}</strong>確認中</span><span className="overdue"><strong>{counts.overdue}</strong>期限超過</span></div>
       <div className="task-toolbar">
-        <input aria-label="タスク検索" placeholder="タスクを検索" value={query} onChange={(event) => setQuery(event.target.value)} />
+        <input aria-label="タスク検索" placeholder="タスク名・種類・メモを検索" value={query} onChange={(event) => setQuery(event.target.value)} />
         <select value={status} onChange={(event) => setStatus(event.target.value)}><option>すべて</option><option>未着手</option><option>作業中</option><option>確認中</option><option>完了</option></select>
+        <select value={priority} onChange={(event) => setPriority(event.target.value)}><option>すべて</option><option value="高">高優先度</option><option value="中">中優先度</option><option value="低">低優先度</option></select>
+        <select value={sort} onChange={(event) => setSort(event.target.value)}><option>期限が近い順</option><option>更新が新しい順</option><option>並び順</option></select>
         <span>{visible.length}件</span>
       </div>
       {loading && <div className="empty-state">読み込み中…</div>}
       <div className="managed-task-list">
         {visible.map((task) => (
-          <ManagedTaskCard key={task.id} task={task} onUpdate={onUpdate} onAddGoogle={onAddGoogle} isGoogleConnected={isGoogleConnected} />
+          <ManagedTaskCard key={task.id} task={task} onUpdate={onUpdate} onDelete={onDelete} onAddGoogle={onAddGoogle} isGoogleConnected={isGoogleConnected} />
         ))}
       </div>
     </section>
   );
 }
 
-function ManagedTaskCard({ task, onUpdate, onAddGoogle, isGoogleConnected }: { task: WorkTask; onUpdate: (id: number, patch: Partial<WorkTask>) => Promise<void>; onAddGoogle: (task: WorkTask) => Promise<boolean>; isGoogleConnected: boolean }) {
+function ManagedTaskCard({ task, onUpdate, onDelete, onAddGoogle, isGoogleConnected }: { task: WorkTask; onUpdate: (id: number, patch: Partial<WorkTask>) => Promise<void>; onDelete: (id: number) => Promise<void>; onAddGoogle: (task: WorkTask) => Promise<boolean>; isGoogleConnected: boolean }) {
   const [title, setTitle] = useState(task.title);
   const [category, setCategory] = useState(task.category);
   const [googleBusy, setGoogleBusy] = useState(false);
@@ -892,13 +923,16 @@ function ManagedTaskCard({ task, onUpdate, onAddGoogle, isGoogleConnected }: { t
           <select aria-label="優先度" value={task.priority} onChange={(event) => void onUpdate(task.id, { priority: event.target.value as WorkTask["priority"] })}><option>高</option><option>中</option><option>低</option></select>
           {task.source_meeting_id ? <span className="meeting-source">会議ToDo</span> : null}
           <button className={`google-task-button ${syncedToGoogle ? "synced" : ""}`} disabled={googleBusy || syncedToGoogle} onClick={async () => { setGoogleBusy(true); await onAddGoogle(task); setGoogleBusy(false); }}>{syncedToGoogle ? "✓ Google Tasks登録済み" : googleBusy ? "登録中…" : isGoogleConnected ? "G Google Tasksへ追加" : "G 接続して追加"}</button>
+          <button className="task-delete" onClick={() => window.confirm("このタスクを削除しますか？") && void onDelete(task.id)}>削除</button>
         </div>
         <input aria-label="タスク名" className="managed-task-title" value={title} onChange={(event) => setTitle(event.target.value)} onBlur={() => title !== task.title && void onUpdate(task.id, { title })} />
         <div className="managed-fields">
+          <label><span>種類</span><input value={category} onChange={(event) => setCategory(event.target.value)} onBlur={() => category !== task.category && void onUpdate(task.id, { category })} /></label>
           <label><span>担当者</span><select value={task.assignee} onChange={(event) => void onUpdate(task.id, { assignee: event.target.value })}><option value="">未定</option>{people.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>期限</span><input type="date" value={task.due_date ?? ""} onChange={(event) => void onUpdate(task.id, { due_date: event.target.value || null })} /></label>
-          <label><span>分類</span><input value={category} onChange={(event) => setCategory(event.target.value)} onBlur={() => category !== task.category && void onUpdate(task.id, { category })} /></label>
-          <label><span>元データ</span><input value={task.source_label} disabled /></label>
+          <label><span>期限（必須）</span><input className={task.due_date && task.due_date < today() && task.status !== "完了" ? "date-overdue" : ""} type="date" value={task.due_date ?? ""} onChange={(event) => void onUpdate(task.id, { due_date: event.target.value || null })} /></label>
+          <label><span>撮影日</span><input type="date" value={task.shooting_date ?? ""} onChange={(event) => void onUpdate(task.id, { shooting_date: event.target.value || null })} /></label>
+          <label className="wide-field"><span>関連URL</span><input placeholder="素材・店舗ページなどのURL" value={task.related_url} onChange={(event) => void onUpdate(task.id, { related_url: event.target.value })} /></label>
+          <label className="wide-field"><span>メモ</span><textarea placeholder="進行状況・修正内容・確認事項など" value={task.notes.replace(/\n?\[google-task:[^\]]+\]/g, "")} onChange={(event) => void onUpdate(task.id, { notes: event.target.value })} /></label>
         </div>
       </div>
     </article>
@@ -958,6 +992,7 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
 
   const entries = kind === "schedule" ? schedule.items : report.entries;
   const generated = kind === "schedule" ? buildScheduleText(person, workDate, schedule) : buildReportText(person, workDate, report);
+  const history = useMemo(() => records.filter((item) => item.kind === kind && item.person === person), [records, kind, person]);
 
   async function copyText() {
     await navigator.clipboard.writeText(generated);
@@ -967,15 +1002,22 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
 
   return (
     <section className="record-workspace">
+      <div className="person-tabs record-person-tabs">{people.map((item) => <button key={item} className={person === item ? "active" : ""} onClick={() => setPerson(item)}>{item}</button>)}</div>
+      <div className={`record-layout ${kind}`}>
+      <aside className="record-history">
+        <div className="section-heading"><span>{kind === "schedule" ? "予定の履歴" : "安田の履歴"}</span><strong>{history.length}</strong></div>
+        <button className="secondary-button history-new" onClick={() => setWorkDate(today())}>＋ 新しい{kind === "schedule" ? "予定" : "日報"}</button>
+        {history.map((item) => <button key={item.id} className={`history-item ${item.work_date === workDate ? "active" : ""}`} onClick={() => setWorkDate(item.work_date)}><small>{item.work_date.replaceAll("-", ".")}</small><strong>{item.person} {kind === "schedule" ? "業務予定" : "日報"}</strong><span>{new Date(item.updated_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 更新</span></button>)}
+      </aside>
+      <div className="record-main">
       <div className="record-heading">
         <div><p className="eyebrow">{kind === "schedule" ? "WORK SCHEDULE" : "DAILY REPORT"}</p><h2>{kind === "schedule" ? "業務予定" : "日報"}</h2><p>担当者と日付ごとに記録し、入力内容は自動保存されます。</p></div>
         <div className="record-context">
-          <label><span>担当者</span><select value={person} onChange={(event) => setPerson(event.target.value)}>{people.map((item) => <option key={item}>{item}</option>)}</select></label>
           <label><span>日付</span><input type="date" value={workDate} onChange={(event) => setWorkDate(event.target.value)} /></label>
         </div>
       </div>
       {loading ? <div className="empty-state">読み込み中…</div> : (
-        <div className="record-grid">
+        <div className={`record-grid ${kind === "report" ? "report-grid" : ""}`}>
           <div className="record-editor">
             <section className="record-card">
               <div className="record-card-heading"><div><span>01</span><h3>時間別の業務</h3></div><button className="secondary-button" onClick={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: [...current.items, createEntry()] })) : changeReport((current) => ({ ...current, entries: [...current.entries, createEntry()] }))}>＋ 行を追加</button></div>
@@ -992,24 +1034,26 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
                 <div className="two-column"><RecordField label="今日の目標" value={schedule.dailyGoal} onChange={(value) => changeSchedule((current) => ({ ...current, dailyGoal: value }))} /><RecordField label="今週の目標" value={schedule.weeklyGoal} onChange={(value) => changeSchedule((current) => ({ ...current, weeklyGoal: value }))} /></div>
               </section>
             ) : (
-              <section className="record-card record-fields">
-                <RecordField label="本日の業務内容" value={report.reportContent} onChange={(value) => changeReport((current) => ({ ...current, reportContent: value }))} />
-                <RecordField label="相談・確認事項" value={report.consultationContent} onChange={(value) => changeReport((current) => ({ ...current, consultationContent: value }))} />
-                <div className="two-column"><RecordField label="振り返り" value={report.reflection} onChange={(value) => changeReport((current) => ({ ...current, reflection: value }))} /><RecordField label="改善点" value={report.improvements} onChange={(value) => changeReport((current) => ({ ...current, improvements: value }))} /></div>
-                <RecordField label="次回の重点" value={report.nextFocus} onChange={(value) => changeReport((current) => ({ ...current, nextFocus: value }))} />
-                <div className="two-column"><label className="record-field"><span>次回出勤日</span><input type="date" value={report.nextWorkDate} onChange={(event) => changeReport((current) => ({ ...current, nextWorkDate: event.target.value }))} /></label><RecordField label="次回予定" value={report.nextSchedule} onChange={(value) => changeReport((current) => ({ ...current, nextSchedule: value }))} /></div>
-                <RecordField label="期限未定タスク" value={report.undatedTasks} onChange={(value) => changeReport((current) => ({ ...current, undatedTasks: value }))} />
-                <RecordField label="その他" value={report.other} onChange={(value) => changeReport((current) => ({ ...current, other: value }))} />
+              <section className="record-fields report-fields">
+                <RecordField label="業務内容" value={report.reportContent} onChange={(value) => changeReport((current) => ({ ...current, reportContent: value }))} />
+                <RecordField label="相談内容" value={report.consultationContent} onChange={(value) => changeReport((current) => ({ ...current, consultationContent: value }))} />
+                <RecordField label="振り返り" value={report.reflection} onChange={(value) => changeReport((current) => ({ ...current, reflection: value }))} />
+                <RecordField label="成果・改善点" value={report.improvements} onChange={(value) => changeReport((current) => ({ ...current, improvements: value }))} />
+                <RecordField label="明日取り組むこと" value={report.nextFocus} onChange={(value) => changeReport((current) => ({ ...current, nextFocus: value }))} />
+                <RecordField label="明日予定のタスク" value={report.undatedTasks} onChange={(value) => changeReport((current) => ({ ...current, undatedTasks: value }))} />
+                <div className="record-card report-next"><label className="record-field"><span>次回出勤日</span><input type="date" value={report.nextWorkDate} onChange={(event) => changeReport((current) => ({ ...current, nextWorkDate: event.target.value }))} /></label><RecordField label="次回の業務予定" value={report.nextSchedule} onChange={(value) => changeReport((current) => ({ ...current, nextSchedule: value }))} /><RecordField label="その他" value={report.other} onChange={(value) => changeReport((current) => ({ ...current, other: value }))} /></div>
               </section>
             )}
             {record ? <button className="danger-button" onClick={() => void onDelete(record.id)}>この日の記録を削除</button> : null}
           </div>
-          <aside className="record-preview">
+          <aside className={`record-preview ${kind === "report" ? "report-preview" : ""}`}>
             <div className="preview-heading"><div><p className="eyebrow">READY TO SHARE</p><h3>{kind === "schedule" ? "業務予定の完成文" : "日報の完成文"}</h3></div><button className="primary-button" onClick={() => void copyText()}>{copied ? "コピー済み ✓" : "文章をコピー"}</button></div>
             <pre>{generated}</pre>
           </aside>
         </div>
       )}
+      </div>
+      </div>
     </section>
   );
 }
@@ -1040,12 +1084,15 @@ function buildReportText(person: string, workDate: string, payload: ReportPayloa
   return lines.join("\n");
 }
 
+type RedmineCast = { id: string; url: string; name: string; kana: string; revision: string };
 function RedmineWorkspace() {
-  const [form, setForm] = useState({ title: "", background: "", current: "", request: "", notes: "" });
+  const [form, setForm] = useState({ requestType: "ホスト特集", area: "", store: "", template: "①〜⑤から自動選択", sharedNotes: "" });
+  const [casts, setCasts] = useState<RedmineCast[]>([{ id: crypto.randomUUID(), url: "", name: "", kana: "", revision: "" }]);
   const [copied, setCopied] = useState(false);
-  const text = [`h1. ${form.title || "チケットタイトル"}`, "", "h2. 背景・目的", form.background || "（背景・目的を入力）", "", "h2. 現状", form.current || "（現在の状況を入力）", "", "h2. 対応内容・依頼事項", form.request || "（対応内容を入力）", ...(form.notes ? ["", "h2. 補足", form.notes] : [])].join("\n");
+  const text = [`h1. ${form.area || "エリア"} ${form.store || "店舗名"} ${form.requestType}`, "", ...casts.flatMap((cast, index) => [`h2. キャスト${index + 1}：${cast.name || "名前未入力"}`, `* キャストページ：${cast.url || "未入力"}`, `* 読み仮名：${cast.kana || "未入力"}`, "", cast.revision || "修正内容を入力してください。", ""]), ...(form.sharedNotes ? ["h2. 共通の備考", form.sharedNotes] : [])].join("\n");
   async function copyText() { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1600); }
-  return <section className="record-workspace"><div className="record-heading"><div><p className="eyebrow">REDMINE TEXT MAKER</p><h2>Redmine文章</h2><p>要点を入力すると、そのまま貼り付けられるTextile形式の文章を作成します。</p></div></div><div className="record-grid"><div className="record-editor"><section className="record-card record-fields"><label className="record-field"><span>タイトル</span><input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><RecordField label="背景・目的" value={form.background} onChange={(value) => setForm({ ...form, background: value })} /><RecordField label="現状" value={form.current} onChange={(value) => setForm({ ...form, current: value })} /><RecordField label="対応内容・依頼事項" value={form.request} onChange={(value) => setForm({ ...form, request: value })} /><RecordField label="補足" value={form.notes} onChange={(value) => setForm({ ...form, notes: value })} /></section></div><aside className="record-preview"><div className="preview-heading"><div><p className="eyebrow">TEXTILE PREVIEW</p><h3>完成文</h3></div><button className="primary-button" onClick={() => void copyText()}>{copied ? "コピー済み ✓" : "文章をコピー"}</button></div><pre>{text}</pre></aside></div></section>;
+  const updateCast = (id: string, patch: Partial<RedmineCast>) => setCasts((current) => current.map((cast) => cast.id === id ? { ...cast, ...patch } : cast));
+  return <section className="record-workspace redmine-workspace"><div className="record-heading"><div><p className="eyebrow">REDMINE TEXT MAKER</p><h2>Redmine文章作成</h2><p>以前のテンプレートと同じ形式で、貼り付け用の文章を作成します。</p></div></div><div className="redmine-stack"><section className="record-card"><div className="record-card-heading"><div><span>01</span><h3>基本情報</h3></div></div><div className="redmine-basic"><label className="record-field"><span>依頼種別</span><select value={form.requestType} onChange={(event) => setForm({ ...form, requestType: event.target.value })}><option>ホスト特集</option><option>店舗情報修正</option><option>キャスト情報修正</option></select></label><label className="record-field"><span>地域</span><input placeholder="例：大阪ミナミ" value={form.area} onChange={(event) => setForm({ ...form, area: event.target.value })} /></label><label className="record-field"><span>店舗</span><input placeholder="店舗名" value={form.store} onChange={(event) => setForm({ ...form, store: event.target.value })} /></label></div></section><section className="record-card"><div className="record-card-heading"><div><span>02</span><h3>ホスト特集</h3></div><button className="primary-button" onClick={() => setCasts((current) => [...current, { id: crypto.randomUUID(), url: "", name: "", kana: "", revision: "" }])}>＋ キャスト追加</button></div><div className="redmine-settings"><label className="record-field"><span>データ参照元URL</span><input placeholder="資料フォルダのURL" /></label><label className="record-field"><span>タイトル種類</span><input value="イケメン" readOnly /></label><label className="record-field"><span>本文テンプレート</span><select value={form.template} onChange={(event) => setForm({ ...form, template: event.target.value })}><option>①〜⑤から自動選択</option><option>①</option><option>②</option><option>③</option><option>④</option><option>⑤</option></select></label></div><div className="cast-grid">{casts.map((cast, index) => <article className="cast-card" key={cast.id}><div className="cast-title"><strong>キャスト {index + 1}</strong>{casts.length > 1 && <button onClick={() => setCasts((current) => current.filter((item) => item.id !== cast.id))}>削除</button>}</div><label className="record-field"><span>キャストページURL</span><div className="url-row"><input placeholder="Star-GuysのキャストURLを貼り付け" value={cast.url} onChange={(event) => updateCast(cast.id, { url: event.target.value })} /><button className="secondary-button">URLから取得</button></div></label><div className="two-column"><label className="record-field"><span>名前</span><input value={cast.name} onChange={(event) => updateCast(cast.id, { name: event.target.value })} /></label><label className="record-field"><span>読み仮名</span><input value={cast.kana} onChange={(event) => updateCast(cast.id, { kana: event.target.value })} /></label></div><RecordField label="修正内容" value={cast.revision} onChange={(value) => updateCast(cast.id, { revision: value })} /></article>)}</div><RecordField label="共通の備考" value={form.sharedNotes} onChange={(value) => setForm({ ...form, sharedNotes: value })} /></section><aside className="record-preview redmine-preview"><div className="preview-heading"><div><p className="eyebrow">TEXT TEMPLATE</p><h3>Redmine貼り付け用の完成文</h3></div><button className="primary-button" onClick={() => void copyText()}>{copied ? "コピー済み ✓" : "Redmine文章をコピー"}</button></div><pre>{text}</pre></aside></div></section>;
 }
 
 function NewMeetingModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: { title: string; date: string; time: string; participants: string }) => Promise<void> }) {
