@@ -10,3 +10,14 @@ export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
     detectSessionInUrl: true,
   },
 });
+
+// Shared workspace reads are intentionally public under RLS. Keep them
+// independent from a cached OAuth session so an expired Google token cannot
+// prevent the agenda, tasks, and work records from loading.
+export const publicSupabase = createClient(supabaseUrl, supabasePublishableKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
+});
