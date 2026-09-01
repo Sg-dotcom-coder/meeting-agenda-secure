@@ -71,11 +71,12 @@ button{cursor:pointer}
 .task-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:22px}
 .task-heading h2{margin:5px 0;font-size:28px}
 .task-heading>div>p:last-child{margin:0;color:#778193;font-size:11px}
-.task-stats{display:flex;gap:9px}
-.task-stats span{min-width:82px;padding:10px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:10px;color:#818a99;font-size:8px}
+.task-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:12px 0 16px}
+.task-stats span{min-width:82px;padding:12px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:10px;color:#818a99;font-size:8px}
 .task-stats strong{display:block;color:var(--ink);font-size:18px}
+.task-stats .overdue{border-color:#e9c5ca;background:#fff8f8}.task-stats .overdue strong{color:#bd4655}
 .person-tabs{display:flex;gap:5px;width:max-content;margin-bottom:14px;padding:4px;background:#e9edf2;border-radius:10px}
-.task-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) 140px auto;gap:10px;align-items:center;margin-bottom:17px}
+.task-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) 125px 125px 145px auto;gap:10px;align-items:center;margin-bottom:17px}
 .task-toolbar input,.task-toolbar select{height:40px;padding:0 11px;border:1px solid #dce1e8;border-radius:9px;background:#fff;color:var(--ink);outline:0}
 .task-toolbar span{color:#818a99;font-size:10px}
 .managed-task-list{display:flex;flex-direction:column;gap:11px}
@@ -92,6 +93,7 @@ button{cursor:pointer}
 .managed-fields{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:9px}
 .managed-fields label{display:flex;flex-direction:column;gap:6px}
 .managed-fields input,.managed-fields select{width:100%;height:36px;padding:0 9px;border:1px solid #dce1e8;border-radius:8px;background:#fafbfc;color:var(--ink);outline:0;font-size:9px}
+.managed-fields textarea{width:100%;min-height:58px;padding:9px;border:1px solid #dce1e8;border-radius:8px;background:#fafbfc;color:var(--ink);resize:vertical;font-size:9px}.managed-fields .wide-field{grid-column:span 2}.date-overdue{border-color:#e2aab2!important;background:#fff5f6!important;color:#a93f4e!important}.task-delete{margin-left:4px;border:0;background:transparent;color:#a34b58;font-size:8px;font-weight:850}
 .coming-soon{max-width:700px;margin:90px auto;padding:45px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:18px}
 .coming-soon span{color:#5268d6;font-size:9px;font-weight:900;letter-spacing:.14em}
 .coming-soon h2{font-size:28px}
@@ -136,6 +138,7 @@ button{cursor:pointer}
 }
 
 .record-workspace{max-width:1380px;margin:0 auto;padding:38px 5vw 80px}
+.record-person-tabs{margin:0 auto 20px}.record-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:28px}.record-main{min-width:0}.record-history{border-right:1px solid var(--line);padding-right:18px}.history-new{width:100%;margin-bottom:12px}.history-item{width:100%;display:flex;flex-direction:column;gap:4px;margin-bottom:7px;padding:12px;text-align:left;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink)}.history-item.active{background:#fff;border-color:#dce1e8;box-shadow:0 4px 16px #1825400b}.history-item small,.history-item span{color:#87909f;font-size:8px}.history-item strong{font-size:10px}
 .record-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-bottom:24px}
 .record-heading h2{margin:5px 0;font-size:28px}
 .record-heading>div>p:last-child{margin:0;color:#778193;font-size:11px}
@@ -143,6 +146,7 @@ button{cursor:pointer}
 .record-context label{display:flex;flex-direction:column;gap:5px;color:#737d8e;font-size:9px;font-weight:850}
 .record-context select,.record-context input,.record-field input{height:40px;padding:0 11px;border:1px solid #dce1e8;border-radius:9px;background:#fff;color:var(--ink);outline:0}
 .record-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.75fr);gap:20px;align-items:start}
+.record-grid.report-grid{display:block}.report-grid .record-editor{display:block}.report-grid .record-editor>.record-card:first-child{margin-bottom:14px}.report-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.report-fields>.record-field{padding:15px;background:#fff;border:1px solid var(--line);border-radius:12px}.report-fields textarea{min-height:110px}.report-next{grid-column:1/-1;display:grid;grid-template-columns:180px 1fr 1fr;gap:12px}.report-preview{position:static;margin-top:14px}.report-preview pre{min-height:220px;background:#fff;color:var(--ink)}
 .record-editor{display:flex;flex-direction:column;gap:14px}
 .record-card,.record-preview{background:#fff;border:1px solid var(--line);border-radius:15px;box-shadow:0 7px 25px #29375009}
 .record-card{padding:20px}
@@ -166,9 +170,10 @@ button{cursor:pointer}
 .preview-heading{padding:18px;border-bottom:1px solid var(--line)}
 .record-preview pre{min-height:430px;margin:0;padding:22px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#172642;color:#e9edf5;font:11px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace}
 .danger-button{align-self:flex-start;border:1px solid #e2c7cc;border-radius:9px;background:#fff6f7;color:#a24e5b;padding:9px 12px;font-size:9px;font-weight:850}
-@media(max-width:1050px){.record-grid{grid-template-columns:1fr}.record-preview{position:static}.time-entry{grid-template-columns:90px 12px 90px 110px minmax(150px,1fr) 34px}}
-@media(max-width:900px){.record-heading{display:block}.record-context{margin-top:16px}.time-entry{grid-template-columns:1fr 12px 1fr 1fr 34px}.time-entry input[aria-label="業務内容"]{grid-column:1/-2}}
-@media(max-width:560px){.two-column{grid-template-columns:1fr}.record-workspace{padding:25px 14px 60px}.record-context{display:grid;grid-template-columns:1fr 1fr}.time-entry{grid-template-columns:1fr 12px 1fr 34px}.time-entry input[aria-label="分類"],.time-entry input[aria-label="業務内容"]{grid-column:1/-1}.time-entry button{grid-column:4;grid-row:1}.preview-heading{align-items:flex-start}}
+.redmine-workspace{max-width:980px}.redmine-stack{display:flex;flex-direction:column;gap:14px}.redmine-basic,.redmine-settings{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:15px}.record-field select{height:40px;padding:0 10px;border:1px solid #dce1e8;border-radius:9px;background:#fff;color:var(--ink)}.cast-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}.cast-card{padding:14px;border:1px solid #dfe3ea;border-radius:11px;background:#fafbfc}.cast-title{display:flex;justify-content:space-between;margin-bottom:10px}.cast-title strong{font-size:11px}.cast-title button{border:0;background:transparent;color:#a34b58;font-size:8px}.url-row{display:grid;grid-template-columns:1fr auto;gap:6px}.url-row .secondary-button{padding:8px;font-size:8px}.redmine-preview{position:static}.redmine-preview pre{min-height:240px;background:#fff;color:var(--ink)}
+@media(max-width:1050px){.record-layout{grid-template-columns:190px minmax(0,1fr)}.record-grid{grid-template-columns:1fr}.record-preview{position:static}.time-entry{grid-template-columns:90px 12px 90px 110px minmax(150px,1fr) 34px}.report-next{grid-template-columns:1fr 1fr}.report-next>.record-field:last-child{grid-column:1/-1}}
+@media(max-width:900px){.record-layout{display:block}.record-history{display:flex;gap:8px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:0 0 14px;margin-bottom:22px}.record-history .section-heading{display:none}.history-new,.history-item{min-width:150px;margin:0}.record-heading{display:block}.record-context{margin-top:16px}.time-entry{grid-template-columns:1fr 12px 1fr 1fr 34px}.time-entry input[aria-label="業務内容"]{grid-column:1/-2}.cast-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.two-column,.report-fields,.report-next,.redmine-basic,.redmine-settings{grid-template-columns:1fr}.report-next>.record-field:last-child{grid-column:auto}.two-column{grid-template-columns:1fr}.record-workspace{padding:25px 14px 60px}.record-context{display:grid;grid-template-columns:1fr}.time-entry{grid-template-columns:1fr 12px 1fr 34px}.time-entry input[aria-label="分類"],.time-entry input[aria-label="業務内容"]{grid-column:1/-1}.time-entry button{grid-column:4;grid-row:1}.preview-heading{align-items:flex-start}.managed-fields .wide-field{grid-column:auto}.task-stats{grid-template-columns:1fr 1fr}}
 
 .meeting-ai{margin-top:22px;border:1px solid #d9def0;border-radius:16px;background:#fff;overflow:hidden;box-shadow:0 8px 28px #26365f0b}
 .meeting-ai-toggle{width:100%;display:flex;align-items:center;gap:12px;padding:18px 20px;border:0;background:linear-gradient(135deg,#f5f6ff,#fff);color:var(--ink);text-align:left}
