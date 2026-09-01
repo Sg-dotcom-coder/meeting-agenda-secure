@@ -51,6 +51,48 @@ type WorkTask = {
   updated_at: string;
 };
 
+type WorkRecordKind = "schedule" | "report";
+
+type WorkRecord = {
+  id: string;
+  kind: WorkRecordKind;
+  person: string;
+  work_date: string;
+  title: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+type TimeEntry = {
+  id: string;
+  start: string;
+  end: string;
+  category: string;
+  detail: string;
+};
+
+type SchedulePayload = {
+  tasks: string;
+  items: TimeEntry[];
+  priorities: string;
+  dailyGoal: string;
+  weeklyGoal: string;
+};
+
+type ReportPayload = {
+  entries: TimeEntry[];
+  reportContent: string;
+  consultationContent: string;
+  reflection: string;
+  improvements: string;
+  nextFocus: string;
+  nextWorkDate: string;
+  nextSchedule: string;
+  undatedTasks: string;
+  other: string;
+};
+
 const navItems: { key: WorkspacePage; label: string; eyebrow: string }[] = [
   { key: "agenda", label: "会議アジェンダ", eyebrow: "MEETING WORKSPACE" },
   { key: "schedule", label: "業務予定", eyebrow: "WORK SCHEDULE" },
@@ -119,16 +161,62 @@ function today() {
   }).format(new Date());
 }
 
+function createEntry(): TimeEntry {
+  return { id: crypto.randomUUID(), start: "09:00", end: "10:00", category: "", detail: "" };
+}
+
+function normalizeEntries(value: unknown): TimeEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => {
+    const raw = (item ?? {}) as Partial<TimeEntry>;
+    return {
+      id: typeof raw.id === "string" ? raw.id : `legacy-${index}`,
+      start: typeof raw.start === "string" ? raw.start : "",
+      end: typeof raw.end === "string" ? raw.end : "",
+      category: typeof raw.category === "string" ? raw.category : "",
+      detail: typeof raw.detail === "string" ? raw.detail : typeof (raw as { content?: unknown }).content === "string" ? String((raw as { content: string }).content) : "",
+    };
+  });
+}
+
+function normalizeSchedule(value: Record<string, unknown> | undefined): SchedulePayload {
+  return {
+    tasks: typeof value?.tasks === "string" ? value.tasks : "",
+    items: normalizeEntries(value?.items),
+    priorities: typeof value?.priorities === "string" ? value.priorities : "",
+    dailyGoal: typeof value?.dailyGoal === "string" ? value.dailyGoal : "",
+    weeklyGoal: typeof value?.weeklyGoal === "string" ? value.weeklyGoal : "",
+  };
+}
+
+function normalizeReport(value: Record<string, unknown> | undefined): ReportPayload {
+  const text = (key: keyof ReportPayload) => typeof value?.[key] === "string" ? String(value[key]) : "";
+  return {
+    entries: normalizeEntries(value?.entries),
+    reportContent: text("reportContent"),
+    consultationContent: text("consultationContent"),
+    reflection: text("reflection"),
+    improvements: text("improvements"),
+    nextFocus: text("nextFocus"),
+    nextWorkDate: text("nextWorkDate"),
+    nextSchedule: text("nextSchedule"),
+    undatedTasks: text("undatedTasks"),
+    other: text("other"),
+  };
+}
+
 export default function Home() {
   const [page, setPage] = useState<WorkspacePage>("agenda");
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [tasks, setTasks] = useState<WorkTask[]>([]);
+  const [workRecords, setWorkRecords] = useState<WorkRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [message, setMessage] = useState("");
   const [newMeetingOpen, setNewMeetingOpen] = useState(false);
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const recordSaveQueues = useRef<Map<string, Promise<void>>>(new Map());
 
   const selected = useMemo(
     () => meetings.find((meeting) => meeting.id === selectedId) ?? meetings[0],
@@ -138,11 +226,12 @@ export default function Home() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     setMessage("");
-    const [meetingResult, taskResult] = await Promise.all([
+    const [meetingResult, taskResult, recordResult] = await Promise.all([
       supabase.from("meetings").select("*").order("date", { ascending: false }).order("created_at", { ascending: false }),
       supabase.from("work_tasks").select("*").order("sort_order").order("created_at", { ascending: false }),
+      supabase.from("work_records").select("*").order("work_date", { ascending: false }).order("updated_at", { ascending: false }),
     ]);
-    if (meetingResult.error || taskResult.error) {
+    if (meetingResult.error || taskResult.error || recordResult.error) {
       setMessage("データを読み込めませんでした。ログイン状態または通信をご確認ください。");
       setSaveState("error");
     } else {
@@ -150,6 +239,7 @@ export default function Home() {
       setMeetings(normalized);
       setSelectedId((current) => normalized.some((item) => item.id === current) ? current : normalized[0]?.id ?? "");
       setTasks((taskResult.data ?? []) as WorkTask[]);
+      setWorkRecords((recordResult.data ?? []) as WorkRecord[]);
     }
     setLoading(false);
   }, []);
@@ -313,8 +403,79 @@ export default function Home() {
       setMessage("タスクを保存できませんでした。");
       await loadAll();
     } else {
+      const linkedTask = tasks.find((task) => task.id === id);
+      if (linkedTask?.source_meeting_id && (patch.title !== undefined || patch.assignee !== undefined || patch.due_date !== undefined)) {
+        const linkedMeeting = meetings.find((meeting) => meeting.id === linkedTask.source_meeting_id);
+        if (linkedMeeting) {
+          const updatedMeeting = {
+            ...linkedMeeting,
+            agendas: linkedMeeting.agendas.map((agenda) => ({
+              ...agenda,
+              tasks: agenda.tasks.map((task) => task.workTaskId === id ? {
+                ...task,
+                ...(patch.title !== undefined ? { text: patch.title } : {}),
+                ...(patch.assignee !== undefined ? { owner: patch.assignee } : {}),
+                ...(patch.due_date !== undefined ? { due: patch.due_date ?? "" } : {}),
+              } : task),
+            })),
+          };
+          const meetingResult = await supabase.from("meetings").update({ agendas: updatedMeeting.agendas, updated_at: new Date().toISOString() }).eq("id", updatedMeeting.id);
+          if (meetingResult.error) {
+            setSaveState("error");
+            setMessage("タスクは保存されましたが、会議ToDoへ反映できませんでした。");
+            return;
+          }
+          setMeetings((current) => current.map((meeting) => meeting.id === updatedMeeting.id ? updatedMeeting : meeting));
+        }
+      }
       setSaveState("saved");
     }
+  }
+
+  function saveWorkRecord(kind: WorkRecordKind, person: string, workDate: string, payload: Record<string, unknown>) {
+    const key = `${kind}:${person}:${workDate}`;
+    setSaveState("saving");
+    const previous = recordSaveQueues.current.get(key) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      const { data: existing, error: lookupError } = await supabase
+        .from("work_records")
+        .select("id")
+        .eq("kind", kind)
+        .eq("person", person)
+        .eq("work_date", workDate)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lookupError) throw lookupError;
+      const values = { kind, person, work_date: workDate, title: kind === "schedule" ? "業務予定" : "日報", payload, updated_at: new Date().toISOString() };
+      const result = existing?.id
+        ? await supabase.from("work_records").update(values).eq("id", existing.id).select("*").single()
+        : await supabase.from("work_records").insert(values).select("*").single();
+      if (result.error || !result.data) throw result.error ?? new Error("保存結果がありません");
+      const saved = result.data as WorkRecord;
+      setWorkRecords((current) => [saved, ...current.filter((record) => record.id !== saved.id)]);
+      setMessage("");
+      setSaveState("saved");
+    }).catch(() => {
+      setSaveState("error");
+      setMessage("業務記録を保存できませんでした。");
+    }).finally(() => {
+      if (recordSaveQueues.current.get(key) === next) recordSaveQueues.current.delete(key);
+    });
+    recordSaveQueues.current.set(key, next);
+    return next;
+  }
+
+  async function deleteWorkRecord(id: string) {
+    setSaveState("saving");
+    const { error } = await supabase.from("work_records").delete().eq("id", id);
+    if (error) {
+      setSaveState("error");
+      setMessage("業務記録を削除できませんでした。");
+      return;
+    }
+    setWorkRecords((current) => current.filter((record) => record.id !== id));
+    setSaveState("saved");
   }
 
   const nav = navItems.find((item) => item.key === page) ?? navItems[0];
@@ -358,13 +519,9 @@ export default function Home() {
 
       {page === "tasks" && <TaskWorkspace tasks={tasks} loading={loading} onUpdate={updateWorkTask} />}
 
-      {(page === "schedule" || page === "report" || page === "redmine") && (
-        <section className="coming-soon">
-          <span>REBUILD IN PROGRESS</span>
-          <h2>{nav.label}</h2>
-          <p>既存データを保ったまま、この機能を次の実装単位で移行します。</p>
-        </section>
-      )}
+      {page === "schedule" && <WorkRecordWorkspace kind="schedule" records={workRecords} loading={loading} onSave={saveWorkRecord} onDelete={deleteWorkRecord} />}
+      {page === "report" && <WorkRecordWorkspace kind="report" records={workRecords} loading={loading} onSave={saveWorkRecord} onDelete={deleteWorkRecord} />}
+      {page === "redmine" && <RedmineWorkspace />}
 
       {newMeetingOpen && <NewMeetingModal onClose={() => setNewMeetingOpen(false)} onSubmit={createMeeting} />}
     </main>
@@ -566,6 +723,146 @@ function ManagedTaskCard({ task, onUpdate }: { task: WorkTask; onUpdate: (id: nu
       </div>
     </article>
   );
+}
+
+function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
+  kind: WorkRecordKind;
+  records: WorkRecord[];
+  loading: boolean;
+  onSave: (kind: WorkRecordKind, person: string, workDate: string, payload: Record<string, unknown>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [person, setPerson] = useState(people[0]);
+  const [workDate, setWorkDate] = useState(today());
+  const record = useMemo(() => records.find((item) => item.kind === kind && item.person === person && item.work_date === workDate), [records, kind, person, workDate]);
+  const [schedule, setSchedule] = useState<SchedulePayload>(() => normalizeSchedule(record?.payload));
+  const [report, setReport] = useState<ReportPayload>(() => normalizeReport(record?.payload));
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setSchedule(normalizeSchedule(record?.payload));
+    setReport(normalizeReport(record?.payload));
+  }, [record?.id, kind, person, workDate]);
+
+  function queueSave(payload: SchedulePayload | ReportPayload) {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      void onSave(kind, person, workDate, payload as unknown as Record<string, unknown>);
+    }, 650);
+  }
+
+  function changeSchedule(transform: (current: SchedulePayload) => SchedulePayload) {
+    setSchedule((current) => {
+      const next = transform(current);
+      queueSave(next);
+      return next;
+    });
+  }
+
+  function changeReport(transform: (current: ReportPayload) => ReportPayload) {
+    setReport((current) => {
+      const next = transform(current);
+      queueSave(next);
+      return next;
+    });
+  }
+
+  function changeEntry(entryKind: WorkRecordKind, id: string, patch: Partial<TimeEntry>) {
+    if (entryKind === "schedule") changeSchedule((current) => ({ ...current, items: current.items.map((item) => item.id === id ? { ...item, ...patch } : item) }));
+    else changeReport((current) => ({ ...current, entries: current.entries.map((item) => item.id === id ? { ...item, ...patch } : item) }));
+  }
+
+  const entries = kind === "schedule" ? schedule.items : report.entries;
+  const generated = kind === "schedule" ? buildScheduleText(person, workDate, schedule) : buildReportText(person, workDate, report);
+
+  async function copyText() {
+    await navigator.clipboard.writeText(generated);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  }
+
+  return (
+    <section className="record-workspace">
+      <div className="record-heading">
+        <div><p className="eyebrow">{kind === "schedule" ? "WORK SCHEDULE" : "DAILY REPORT"}</p><h2>{kind === "schedule" ? "業務予定" : "日報"}</h2><p>担当者と日付ごとに記録し、入力内容は自動保存されます。</p></div>
+        <div className="record-context">
+          <label><span>担当者</span><select value={person} onChange={(event) => setPerson(event.target.value)}>{people.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span>日付</span><input type="date" value={workDate} onChange={(event) => setWorkDate(event.target.value)} /></label>
+        </div>
+      </div>
+      {loading ? <div className="empty-state">読み込み中…</div> : (
+        <div className="record-grid">
+          <div className="record-editor">
+            <section className="record-card">
+              <div className="record-card-heading"><div><span>01</span><h3>時間別の業務</h3></div><button className="secondary-button" onClick={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: [...current.items, createEntry()] })) : changeReport((current) => ({ ...current, entries: [...current.entries, createEntry()] }))}>＋ 行を追加</button></div>
+              <div className="time-entry-list">
+                {entries.length === 0 ? <p className="record-empty">まだ時間別の業務がありません。</p> : null}
+                {entries.map((entry) => <TimeEntryRow key={entry.id} entry={entry} onChange={(patch) => changeEntry(kind, entry.id, patch)} onRemove={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: current.items.filter((item) => item.id !== entry.id) })) : changeReport((current) => ({ ...current, entries: current.entries.filter((item) => item.id !== entry.id) }))} />)}
+              </div>
+            </section>
+
+            {kind === "schedule" ? (
+              <section className="record-card record-fields">
+                <RecordField label="今日のタスク" value={schedule.tasks} onChange={(value) => changeSchedule((current) => ({ ...current, tasks: value }))} />
+                <RecordField label="優先順位" value={schedule.priorities} onChange={(value) => changeSchedule((current) => ({ ...current, priorities: value }))} />
+                <div className="two-column"><RecordField label="今日の目標" value={schedule.dailyGoal} onChange={(value) => changeSchedule((current) => ({ ...current, dailyGoal: value }))} /><RecordField label="今週の目標" value={schedule.weeklyGoal} onChange={(value) => changeSchedule((current) => ({ ...current, weeklyGoal: value }))} /></div>
+              </section>
+            ) : (
+              <section className="record-card record-fields">
+                <RecordField label="本日の業務内容" value={report.reportContent} onChange={(value) => changeReport((current) => ({ ...current, reportContent: value }))} />
+                <RecordField label="相談・確認事項" value={report.consultationContent} onChange={(value) => changeReport((current) => ({ ...current, consultationContent: value }))} />
+                <div className="two-column"><RecordField label="振り返り" value={report.reflection} onChange={(value) => changeReport((current) => ({ ...current, reflection: value }))} /><RecordField label="改善点" value={report.improvements} onChange={(value) => changeReport((current) => ({ ...current, improvements: value }))} /></div>
+                <RecordField label="次回の重点" value={report.nextFocus} onChange={(value) => changeReport((current) => ({ ...current, nextFocus: value }))} />
+                <div className="two-column"><label className="record-field"><span>次回出勤日</span><input type="date" value={report.nextWorkDate} onChange={(event) => changeReport((current) => ({ ...current, nextWorkDate: event.target.value }))} /></label><RecordField label="次回予定" value={report.nextSchedule} onChange={(value) => changeReport((current) => ({ ...current, nextSchedule: value }))} /></div>
+                <RecordField label="期限未定タスク" value={report.undatedTasks} onChange={(value) => changeReport((current) => ({ ...current, undatedTasks: value }))} />
+                <RecordField label="その他" value={report.other} onChange={(value) => changeReport((current) => ({ ...current, other: value }))} />
+              </section>
+            )}
+            {record ? <button className="danger-button" onClick={() => void onDelete(record.id)}>この日の記録を削除</button> : null}
+          </div>
+          <aside className="record-preview">
+            <div className="preview-heading"><div><p className="eyebrow">READY TO SHARE</p><h3>{kind === "schedule" ? "業務予定の完成文" : "日報の完成文"}</h3></div><button className="primary-button" onClick={() => void copyText()}>{copied ? "コピー済み ✓" : "文章をコピー"}</button></div>
+            <pre>{generated}</pre>
+          </aside>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TimeEntryRow({ entry, onChange, onRemove }: { entry: TimeEntry; onChange: (patch: Partial<TimeEntry>) => void; onRemove: () => void }) {
+  return <div className="time-entry"><input aria-label="開始時刻" type="time" value={entry.start} onChange={(event) => onChange({ start: event.target.value })} /><span>–</span><input aria-label="終了時刻" type="time" value={entry.end} onChange={(event) => onChange({ end: event.target.value })} /><input aria-label="分類" placeholder="分類" value={entry.category} onChange={(event) => onChange({ category: event.target.value })} /><input aria-label="業務内容" placeholder="業務内容" value={entry.detail} onChange={(event) => onChange({ detail: event.target.value })} /><button aria-label="行を削除" onClick={onRemove}>×</button></div>;
+}
+
+function RecordField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return <label className="record-field"><span>{label}</span><textarea value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
+function buildScheduleText(person: string, workDate: string, payload: SchedulePayload) {
+  const lines = [`【業務予定】${workDate} / ${person}`];
+  if (payload.items.length) lines.push("", "■ 時間別", ...payload.items.map((item) => `${item.start || "--:--"}〜${item.end || "--:--"}  ${item.category ? `[${item.category}] ` : ""}${item.detail}`));
+  if (payload.tasks) lines.push("", "■ 今日のタスク", payload.tasks);
+  if (payload.priorities) lines.push("", "■ 優先順位", payload.priorities);
+  if (payload.dailyGoal) lines.push("", "■ 今日の目標", payload.dailyGoal);
+  if (payload.weeklyGoal) lines.push("", "■ 今週の目標", payload.weeklyGoal);
+  return lines.join("\n");
+}
+
+function buildReportText(person: string, workDate: string, payload: ReportPayload) {
+  const lines = [`【日報】${workDate} / ${person}`];
+  if (payload.entries.length) lines.push("", "■ 時間別", ...payload.entries.map((item) => `${item.start || "--:--"}〜${item.end || "--:--"}  ${item.category ? `[${item.category}] ` : ""}${item.detail}`));
+  const sections: [string, string][] = [["本日の業務内容", payload.reportContent], ["相談・確認事項", payload.consultationContent], ["振り返り", payload.reflection], ["改善点", payload.improvements], ["次回の重点", payload.nextFocus], ["次回出勤日", payload.nextWorkDate], ["次回予定", payload.nextSchedule], ["期限未定タスク", payload.undatedTasks], ["その他", payload.other]];
+  sections.forEach(([label, value]) => { if (value) lines.push("", `■ ${label}`, value); });
+  return lines.join("\n");
+}
+
+function RedmineWorkspace() {
+  const [form, setForm] = useState({ title: "", background: "", current: "", request: "", notes: "" });
+  const [copied, setCopied] = useState(false);
+  const text = [`h1. ${form.title || "チケットタイトル"}`, "", "h2. 背景・目的", form.background || "（背景・目的を入力）", "", "h2. 現状", form.current || "（現在の状況を入力）", "", "h2. 対応内容・依頼事項", form.request || "（対応内容を入力）", ...(form.notes ? ["", "h2. 補足", form.notes] : [])].join("\n");
+  async function copyText() { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1600); }
+  return <section className="record-workspace"><div className="record-heading"><div><p className="eyebrow">REDMINE TEXT MAKER</p><h2>Redmine文章</h2><p>要点を入力すると、そのまま貼り付けられるTextile形式の文章を作成します。</p></div></div><div className="record-grid"><div className="record-editor"><section className="record-card record-fields"><label className="record-field"><span>タイトル</span><input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><RecordField label="背景・目的" value={form.background} onChange={(value) => setForm({ ...form, background: value })} /><RecordField label="現状" value={form.current} onChange={(value) => setForm({ ...form, current: value })} /><RecordField label="対応内容・依頼事項" value={form.request} onChange={(value) => setForm({ ...form, request: value })} /><RecordField label="補足" value={form.notes} onChange={(value) => setForm({ ...form, notes: value })} /></section></div><aside className="record-preview"><div className="preview-heading"><div><p className="eyebrow">TEXTILE PREVIEW</p><h3>完成文</h3></div><button className="primary-button" onClick={() => void copyText()}>{copied ? "コピー済み ✓" : "文章をコピー"}</button></div><pre>{text}</pre></aside></div></section>;
 }
 
 function NewMeetingModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: { title: string; date: string; time: string; participants: string }) => Promise<void> }) {
