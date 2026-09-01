@@ -19,10 +19,6 @@ async function answer(prompt: string) {
 }
 
 export async function POST(request: Request) {
-  if (!process.env.AI_GATEWAY_API_KEY && !process.env.VERCEL_OIDC_TOKEN) {
-    return Response.json({ error: "AI接続がまだ設定されていません。" }, { status: 503 });
-  }
-
   const body = (await request.json()) as AssistantRequest;
   const question = typeof body.question === "string" ? body.question.trim().slice(0, 5000) : "";
   const previousAnswer = typeof body.previousAnswer === "string" ? body.previousAnswer.slice(-6000) : "";

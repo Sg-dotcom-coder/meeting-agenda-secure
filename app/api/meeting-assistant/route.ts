@@ -22,10 +22,6 @@ const minutesSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  if (!process.env.AI_GATEWAY_API_KEY && !process.env.VERCEL_OIDC_TOKEN) {
-    return Response.json({ error: "AI接続がまだ設定されていません。" }, { status: 503 });
-  }
-
   const body = await request.json() as { transcript?: unknown; storagePath?: unknown; audioType?: unknown; context?: unknown };
   const transcript = typeof body.transcript === "string" ? body.transcript.trim().slice(0, 70000) : "";
   const storagePath = typeof body.storagePath === "string" ? body.storagePath : "";
