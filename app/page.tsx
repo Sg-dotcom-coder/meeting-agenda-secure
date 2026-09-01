@@ -409,7 +409,7 @@ export default function Home() {
         category: "その他",
         assignee: people.includes(draft.owner) ? draft.owner : "",
         status: "未着手",
-        priority: "中",
+        priority: "低",
         due_date: draft.due || null,
         source_meeting_id: selected.id,
         source_label: selected.title,
@@ -469,7 +469,7 @@ export default function Home() {
         category: "その他",
         assignee: people.includes(task.owner) ? task.owner : "",
         status: "未着手",
-        priority: "中",
+        priority: "低",
         due_date: task.due || null,
         source_meeting_id: selected.id,
         source_label: selected.title,
@@ -564,7 +564,7 @@ export default function Home() {
   async function createWorkTask() {
     setSaveState("saving");
     const { data, error } = await supabase.from("work_tasks").insert({
-      title: "新しいタスク", category: "その他", assignee: "", status: "未着手", priority: "中",
+      title: "新しいタスク", category: "その他", assignee: "", status: "未着手", priority: "低",
       due_date: null, shooting_date: null, related_url: "", notes: "", source_label: "手動作成",
       sort_order: tasks.length ? Math.max(...tasks.map((task) => task.sort_order || 0)) + 1 : 1,
     }).select("*").single();
@@ -892,7 +892,7 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
       <div className="task-toolbar">
         <input aria-label="タスク検索" placeholder="タスク名・種類・メモを検索" value={query} onChange={(event) => setQuery(event.target.value)} />
         <select value={status} onChange={(event) => setStatus(event.target.value)}><option>すべて</option><option>未着手</option><option>作業中</option><option>確認中</option><option>完了</option></select>
-        <select value={priority} onChange={(event) => setPriority(event.target.value)}><option>すべて</option><option value="高">高優先度</option><option value="中">中優先度</option><option value="低">低優先度</option></select>
+        <select aria-label="マーク" value={priority} onChange={(event) => setPriority(event.target.value)}><option>すべて</option><option value="高">🔴 赤マーク</option><option value="中">🟠 オレンジ</option><option value="低">マークなし</option></select>
         <select value={sort} onChange={(event) => setSort(event.target.value)}><option>期限が近い順</option><option>更新が新しい順</option><option>並び順</option></select>
         <span>{visible.length}件</span>
       </div>
@@ -915,12 +915,12 @@ function ManagedTaskCard({ task, onUpdate, onDelete, onAddGoogle, isGoogleConnec
   useEffect(() => setCategory(task.category), [task.category]);
 
   return (
-    <article className={`managed-task status-${task.status}`}>
+    <article className={`managed-task priority-${task.priority}`}>
       <div className="task-accent" />
       <div className="managed-task-main">
         <div className="managed-task-top">
           <select aria-label="状態" value={task.status} onChange={(event) => void onUpdate(task.id, { status: event.target.value as WorkTask["status"] })}><option>未着手</option><option>作業中</option><option>確認中</option><option>完了</option></select>
-          <select aria-label="優先度" value={task.priority} onChange={(event) => void onUpdate(task.id, { priority: event.target.value as WorkTask["priority"] })}><option>高</option><option>中</option><option>低</option></select>
+          <select aria-label="マーク" value={task.priority} onChange={(event) => void onUpdate(task.id, { priority: event.target.value as WorkTask["priority"] })}><option value="高">🔴 赤マーク</option><option value="中">🟠 オレンジ</option><option value="低">マークなし</option></select>
           {task.source_meeting_id ? <span className="meeting-source">会議ToDo</span> : null}
           <button className={`google-task-button ${syncedToGoogle ? "synced" : ""}`} disabled={googleBusy || syncedToGoogle} onClick={async () => { setGoogleBusy(true); await onAddGoogle(task); setGoogleBusy(false); }}>{syncedToGoogle ? "✓ Google Tasks登録済み" : googleBusy ? "登録中…" : isGoogleConnected ? "G Google Tasksへ追加" : "G 接続して追加"}</button>
           <button className="task-delete" onClick={() => window.confirm("このタスクを削除しますか？") && void onDelete(task.id)}>削除</button>
