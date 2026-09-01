@@ -2,17 +2,12 @@
   const SUPABASE_URL = "https://wlftsodmwfdhixwlsojo.supabase.co";
   const SUPABASE_KEY = "sb_publishable_rgjg1TjQkY7NuQmGrpOSqQ_Pjs4-zJY";
   const SUMMARY_KEY = "__meetingSummary";
-  const headers = {
-    apikey: SUPABASE_KEY,
-    Authorization: `Bearer ${SUPABASE_KEY}`,
-    "Content-Type": "application/json"
-  };
-
   let activeMeeting = null;
   let activeSignature = null;
   let saveTimer = null;
   let lastSavedValue = null;
   let isSaving = false;
+  let pendingValue = null;
 
   const style = document.createElement("style");
   style.textContent = `
@@ -55,10 +50,34 @@
   `;
   document.head.appendChild(style);
 
+  function accessToken() {
+    const exactKey = "sb-wlftsodmwfdhixwlsojo-auth-token";
+    const candidateKeys = [
+      exactKey,
+      ...Object.keys(localStorage).filter((key) => key.startsWith("sb-") && key.endsWith("-auth-token"))
+    ];
+
+    for (const key of candidateKeys) {
+      try {
+        const session = JSON.parse(localStorage.getItem(key) || "null");
+        if (session?.access_token) return session.access_token;
+      } catch {
+        // Ignore unrelated or stale local-storage entries.
+      }
+    }
+    return null;
+  }
+
   async function request(path, options = {}) {
+    const token = accessToken();
     const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
       ...options,
-      headers: { ...headers, ...(options.headers || {}) }
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${token || SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      }
     });
     if (!response.ok) throw new Error(await response.text());
     const text = await response.text();
@@ -76,35 +95,40 @@
     if (!meta) return null;
     const title = encodeURIComponent(meta.title);
     const date = encodeURIComponent(meta.date);
-    const rows = await request(`meetings?select=id,title,date,participant_notes&title=eq.${title}&date=eq.${date}&limit=1`);
+    const rows = await request(`meetings?select=id,title,date,participant_notes&title=eq.${title}&date=eq.${date}&order=created_at.desc&limit=1`);
     return rows?.[0] || null;
   }
 
   async function saveSummary(value, status) {
-    if (isSaving || value === lastSavedValue) return;
+    pendingValue = value;
+    if (isSaving) return;
     isSaving = true;
-    status.textContent = "保存中…";
-    try {
-      // The meeting selector is part of the original app. Resolve it again at
-      // save time so a quick meeting switch can never write to the old record.
-      activeMeeting = await resolveMeeting();
-      if (!activeMeeting) throw new Error("Active meeting was not found");
-      const rows = await request(`meetings?select=participant_notes&id=eq.${encodeURIComponent(activeMeeting.id)}&limit=1`);
-      const participantNotes = rows?.[0]?.participant_notes || {};
-      participantNotes[SUMMARY_KEY] = { share: value };
-      await request(`meetings?id=eq.${encodeURIComponent(activeMeeting.id)}`, {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ participant_notes: participantNotes, updated_at: new Date().toISOString() })
-      });
-      lastSavedValue = value;
-      status.textContent = "✓ 保存済み";
-    } catch (error) {
-      console.error("meeting summary save failed", error);
-      status.textContent = "保存できませんでした";
-    } finally {
-      isSaving = false;
+    while (pendingValue !== null) {
+      const nextValue = pendingValue;
+      pendingValue = null;
+      if (nextValue === lastSavedValue) continue;
+      status.textContent = "保存中…";
+      try {
+        // Resolve again at save time so a quick meeting switch never writes
+        // the summary into the previously selected meeting.
+        activeMeeting = await resolveMeeting();
+        if (!activeMeeting) throw new Error("Active meeting was not found");
+        const rows = await request(`meetings?select=participant_notes&id=eq.${encodeURIComponent(activeMeeting.id)}&limit=1`);
+        const participantNotes = rows?.[0]?.participant_notes || {};
+        participantNotes[SUMMARY_KEY] = { share: nextValue };
+        await request(`meetings?id=eq.${encodeURIComponent(activeMeeting.id)}`, {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ participant_notes: participantNotes, updated_at: new Date().toISOString() })
+        });
+        lastSavedValue = nextValue;
+        status.textContent = "✓ 保存済み";
+      } catch (error) {
+        console.error("meeting summary save failed", error);
+        status.textContent = "保存できませんでした";
+      }
     }
+    isSaving = false;
   }
 
   async function mount() {
