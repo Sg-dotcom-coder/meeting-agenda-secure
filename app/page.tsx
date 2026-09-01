@@ -748,7 +748,10 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
   function queueSave(payload: SchedulePayload | ReportPayload) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      void onSave(kind, person, workDate, payload as unknown as Record<string, unknown>);
+      const compatiblePayload = kind === "report"
+        ? { ...payload, entries: (payload as ReportPayload).entries.map((entry) => ({ ...entry, content: entry.detail })) }
+        : payload;
+      void onSave(kind, person, workDate, compatiblePayload as unknown as Record<string, unknown>);
     }, 650);
   }
 
