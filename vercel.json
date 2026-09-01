@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/_next/:path*",
+      "destination": "https://meeting-agenda-secure-mbt9dyogl-vzst46qzwb-3303s-projects.vercel.app/_next/:path*"
+    },
+    {
+      "source": "/api/meeting-assistant",
+      "destination": "https://meeting-agenda-secure-mbt9dyogl-vzst46qzwb-3303s-projects.vercel.app/api/meeting-assistant"
+    },
+    {
+      "source": "/",
+      "destination": "/api/proxy"
+    }
+  ]
+}
