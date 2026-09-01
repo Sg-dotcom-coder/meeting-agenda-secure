@@ -91,12 +91,21 @@ export function MeetingAiWorkspace({ context, onApply, isConnected, onConnect }:
 
   async function analyze() {
     if (transcript.trim().length < 20 || busy) return;
+    if (!isConnected) {
+      await onConnect();
+      return;
+    }
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      setError("AI利用にはGoogle接続が必要です。");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const response = await fetch("/api/meeting-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${sessionData.session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ transcript, context }),
       });
       const data = await response.json() as MeetingAiResult & { error?: string };
@@ -168,7 +177,7 @@ export function MeetingAiWorkspace({ context, onApply, isConnected, onConnect }:
           {audioFile ? <div className="selected-audio"><div><strong>{audioFile.name}</strong><span>{(audioFile.size / 1024 / 1024).toFixed(1)} MB</span></div>{audioUrl ? <audio controls src={audioUrl} /> : null}{isConnected ? <button className="primary-button" disabled={busy} onClick={() => void analyzeAudio()}>{busy ? uploadProgress < 100 ? `送信中 ${uploadProgress}%` : "文字起こし・整理中…" : "✦ 音声を解析する"}</button> : <button className="primary-button" onClick={() => void onConnect()}>Google接続して解析</button>}</div> : null}
           <div className="ai-input-divider"><span>または文字起こしを貼り付け</span></div>
           <textarea value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="会議の文字起こしを貼り付け" />
-          <div className="ai-input-actions"><span>{transcript.length.toLocaleString()}文字</span><button className="primary-button" disabled={busy || transcript.trim().length < 20} onClick={() => void analyze()}>{busy ? "整理中…" : "✦ AIで整理する"}</button></div>
+          <div className="ai-input-actions"><span>{transcript.length.toLocaleString()}文字</span><button className="primary-button" disabled={busy || transcript.trim().length < 20} onClick={() => void analyze()}>{busy ? "整理中…" : isConnected ? "✦ AIで整理する" : "Google接続して整理"}</button></div>
           {error ? <p className="ai-error">{error}</p> : null}
         </div>
         {result ? <div className="ai-result-panel">

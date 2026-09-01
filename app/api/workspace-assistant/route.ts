@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { getRequestUser } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,6 +20,8 @@ async function answer(prompt: string) {
 }
 
 export async function POST(request: Request) {
+  if (!await getRequestUser(request)) return Response.json({ error: "AI利用にはGoogle接続が必要です。" }, { status: 401 });
+
   const body = (await request.json()) as AssistantRequest;
   const question = typeof body.question === "string" ? body.question.trim().slice(0, 5000) : "";
   const previousAnswer = typeof body.previousAnswer === "string" ? body.previousAnswer.slice(-6000) : "";

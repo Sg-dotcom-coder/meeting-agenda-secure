@@ -676,7 +676,7 @@ export default function Home() {
       {page === "report" && <WorkRecordWorkspace kind="report" records={workRecords} loading={loading} onSave={saveWorkRecord} onDelete={deleteWorkRecord} />}
       {page === "redmine" && <RedmineWorkspace />}
 
-      <WorkspaceAssistant context={{
+      <WorkspaceAssistant isConnected={Boolean(session)} onConnect={connectGoogle} context={{
         currentPage: page,
         selectedMeeting: selected ? { title: selected.title, date: selected.date, participants: selected.participants, summary: selected.summary, agendas: selected.agendas } : null,
         tasks: tasks.slice(0, 150).map(({ id, title, assignee, status, priority, due_date, category, source_label }) => ({ id, title, assignee, status, priority, due_date, category, source_label })),

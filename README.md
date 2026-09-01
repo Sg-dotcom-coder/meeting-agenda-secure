@@ -27,6 +27,8 @@ npm run build
 
 音声解析とGoogle Tasks連携を使う場合は、SupabaseでGoogle OAuthを有効化し、`meeting-audio-temp`というprivate Storage bucketを用意してください。bucketのポリシーは、認証ユーザーが自分のユーザーIDから始まるパスだけを追加・参照・削除できるように設定します。Google OAuthには `https://www.googleapis.com/auth/tasks` スコープを追加します。
 
+AI議事録とワークスペースアシスタントのAPIは、公開URLからの無制限利用を防ぐためSupabaseの認証済みアクセストークンを必須にしています。
+
 ## 移行状況
 
 - [x] 会議一覧と全体アジェンダ

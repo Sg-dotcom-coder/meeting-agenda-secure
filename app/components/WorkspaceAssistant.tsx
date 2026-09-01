@@ -1,10 +1,11 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 type AssistantMessage = { role: "user" | "assistant"; text: string; hasMore?: boolean };
 
-export function WorkspaceAssistant({ context }: { context: Record<string, unknown> }) {
+export function WorkspaceAssistant({ context, isConnected, onConnect }: { context: Record<string, unknown>; isConnected: boolean; onConnect: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -12,12 +13,17 @@ export function WorkspaceAssistant({ context }: { context: Record<string, unknow
   const [error, setError] = useState("");
 
   async function requestAnswer(input: string, previousAnswer = "") {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      setError("AI利用にはGoogle接続が必要です。");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const response = await fetch("/api/workspace-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${sessionData.session.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ question: input, previousAnswer, context }),
       });
       const data = await response.json() as { text?: string; hasMore?: boolean; error?: string };
@@ -34,6 +40,10 @@ export function WorkspaceAssistant({ context }: { context: Record<string, unknow
     event.preventDefault();
     const input = question.trim();
     if (!input || busy) return;
+    if (!isConnected) {
+      await onConnect();
+      return;
+    }
     setMessages((current) => [...current, { role: "user", text: input }]);
     setQuestion("");
     await requestAnswer(input);
@@ -47,7 +57,7 @@ export function WorkspaceAssistant({ context }: { context: Record<string, unknow
   }
 
   return <div className={`workspace-assistant ${open ? "open" : ""}`}>
-    {open ? <section className="assistant-panel" aria-label="ワークスペースアシスタント"><header><div><p className="eyebrow">WORKSPACE ASSISTANT</p><h2>業務アシスタント</h2></div><button aria-label="閉じる" onClick={() => setOpen(false)}>×</button></header><div className="assistant-messages">{messages.length === 0 ? <div className="assistant-empty"><span>✦</span><strong>この画面の内容から回答します</strong><p>例：「期限が近いタスクを教えて」「今日の会議を要約して」</p></div> : messages.map((message, index) => <div key={index} className={`assistant-message ${message.role}`}><p>{message.text}</p>{message.hasMore ? <button disabled={busy} onClick={() => void continueAnswer()}>続きを生成</button> : null}</div>)}{busy ? <div className="assistant-thinking">整理中…</div> : null}{error ? <p className="ai-error">{error}</p> : null}</div><form onSubmit={submit}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="業務内容について質問" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} /><button disabled={busy || !question.trim()}>送信</button></form></section> : null}
+    {open ? <section className="assistant-panel" aria-label="ワークスペースアシスタント"><header><div><p className="eyebrow">WORKSPACE ASSISTANT</p><h2>業務アシスタント</h2></div><button aria-label="閉じる" onClick={() => setOpen(false)}>×</button></header><div className="assistant-messages">{messages.length === 0 ? <div className="assistant-empty"><span>✦</span><strong>この画面の内容から回答します</strong><p>例：「期限が近いタスクを教えて」「今日の会議を要約して」</p>{!isConnected ? <button className="secondary-button" onClick={() => void onConnect()}>Google接続してAIを使う</button> : null}</div> : messages.map((message, index) => <div key={index} className={`assistant-message ${message.role}`}><p>{message.text}</p>{message.hasMore ? <button disabled={busy} onClick={() => void continueAnswer()}>続きを生成</button> : null}</div>)}{busy ? <div className="assistant-thinking">整理中…</div> : null}{error ? <p className="ai-error">{error}</p> : null}</div><form onSubmit={submit}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="業務内容について質問" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} /><button disabled={busy || !question.trim()}>{isConnected ? "送信" : "接続"}</button></form></section> : null}
     <button className="assistant-launcher" onClick={() => setOpen((current) => !current)} aria-label="業務アシスタントを開く">✦<span>AI</span></button>
   </div>;
 }

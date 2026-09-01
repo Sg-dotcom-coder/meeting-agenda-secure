@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { getRequestUser } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,6 +23,9 @@ const minutesSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const requestUser = await getRequestUser(request);
+  if (!requestUser) return Response.json({ error: "AI利用にはGoogle接続が必要です。" }, { status: 401 });
+
   const body = await request.json() as { transcript?: unknown; storagePath?: unknown; audioType?: unknown; context?: unknown };
   const transcript = typeof body.transcript === "string" ? body.transcript.trim().slice(0, 70000) : "";
   const storagePath = typeof body.storagePath === "string" ? body.storagePath : "";
@@ -37,7 +41,7 @@ export async function POST(request: Request) {
       const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "sb_publishable_rgjg1TjQkY7NuQmGrpOSqQ_Pjs4-zJY";
       const client = createClient(url, key, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
       const { data: userData, error: userError } = await client.auth.getUser(token);
-      if (userError || !userData.user || !storagePath.startsWith(`${userData.user.id}/`)) return Response.json({ error: "音声へのアクセス権を確認できませんでした。" }, { status: 403 });
+      if (userError || !userData.user || userData.user.id !== requestUser.id || !storagePath.startsWith(`${requestUser.id}/`)) return Response.json({ error: "音声へのアクセス権を確認できませんでした。" }, { status: 403 });
       const { data: audio, error: downloadError } = await client.storage.from("meeting-audio-temp").download(storagePath);
       if (downloadError || !audio) throw downloadError ?? new Error("音声を取得できませんでした");
       if (audio.size > 50 * 1024 * 1024) return Response.json({ error: "音声は50MB以下にしてください。" }, { status: 413 });
