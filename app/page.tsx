@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { MeetingAiResult, MeetingAiWorkspace } from "@/app/components/MeetingAiWorkspace";
 import { WorkspaceAssistant } from "@/app/components/WorkspaceAssistant";
@@ -217,6 +218,9 @@ export default function Home() {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [message, setMessage] = useState("");
   const [newMeetingOpen, setNewMeetingOpen] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [googleProviderToken, setGoogleProviderToken] = useState("");
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const recordSaveQueues = useRef<Map<string, Promise<void>>>(new Map());
 
@@ -251,6 +255,55 @@ export default function Home() {
     void loadAll();
     return () => timers.current.forEach(clearTimeout);
   }, [loadAll]);
+
+  useEffect(() => {
+    let active = true;
+    const restore = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      setSession(data.session);
+      const token = data.session?.provider_token || window.localStorage.getItem("google_tasks_provider_token") || "";
+      setGoogleProviderToken(token);
+    };
+    void restore();
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (!active) return;
+      setSession(nextSession);
+      if (nextSession?.provider_token) {
+        window.localStorage.setItem("google_tasks_provider_token", nextSession.provider_token);
+        setGoogleProviderToken(nextSession.provider_token);
+      }
+      if (event === "SIGNED_OUT") {
+        window.localStorage.removeItem("google_tasks_provider_token");
+        setGoogleProviderToken("");
+      }
+      setConnectingGoogle(false);
+    });
+    return () => { active = false; data.subscription.unsubscribe(); };
+  }, []);
+
+  async function connectGoogle() {
+    setConnectingGoogle(true);
+    setMessage("");
+    const redirect = new URL(window.location.href);
+    redirect.searchParams.set("page", page);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        scopes: "https://www.googleapis.com/auth/tasks",
+        redirectTo: redirect.toString(),
+        queryParams: { access_type: "offline", include_granted_scopes: "true", prompt: "consent" },
+      },
+    });
+    if (error) {
+      setConnectingGoogle(false);
+      setMessage("Google接続を開始できませんでした。");
+    }
+  }
+
+  async function disconnectGoogle() {
+    await supabase.auth.signOut();
+  }
 
   function switchPage(nextPage: WorkspacePage) {
     setPage(nextPage);
@@ -554,6 +607,26 @@ export default function Home() {
     setSaveState("saved");
   }
 
+  async function addToGoogleTasks(task: WorkTask) {
+    if (!session || !googleProviderToken) {
+      await connectGoogle();
+      return false;
+    }
+    const response = await fetch("/api/google-tasks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ providerToken: googleProviderToken, title: task.title, notes: [task.notes, task.source_label ? `元データ: ${task.source_label}` : ""].filter(Boolean).join("\n"), due: task.due_date }),
+    });
+    const result = await response.json() as { id?: string; error?: string };
+    if (!response.ok || !result.id) {
+      setMessage(result.error || "Google Tasksへ追加できませんでした。");
+      return false;
+    }
+    const notes = `${task.notes}${task.notes ? "\n" : ""}[google-task:${result.id}]`;
+    await updateWorkTask(task.id, { notes });
+    return true;
+  }
+
   const nav = navItems.find((item) => item.key === page) ?? navItems[0];
 
   return (
@@ -574,6 +647,7 @@ export default function Home() {
         </div>
         <div className="top-actions">
           <span className={`save-state ${saveState}`}>{saveState === "saving" ? "保存中…" : saveState === "error" ? "保存できませんでした" : "✓ 保存済み"}</span>
+          {session ? <div className="google-session"><span>{session.user.email ?? "Google接続済み"}</span><button onClick={() => void disconnectGoogle()}>解除</button></div> : <button className="google-connect" disabled={connectingGoogle} onClick={() => void connectGoogle()}>{connectingGoogle ? "接続中…" : "G Google接続"}</button>}
           {page === "agenda" && <button className="primary-button" onClick={() => setNewMeetingOpen(true)}>＋ 新しい会議</button>}
         </div>
       </header>
@@ -591,10 +665,12 @@ export default function Home() {
           onAddTask={addAgendaTask}
           onRemoveTask={removeAgendaTask}
           onApplyAi={applyMeetingAi}
+          isConnected={Boolean(session)}
+          onConnect={connectGoogle}
         />
       )}
 
-      {page === "tasks" && <TaskWorkspace tasks={tasks} loading={loading} onUpdate={updateWorkTask} />}
+      {page === "tasks" && <TaskWorkspace tasks={tasks} loading={loading} onUpdate={updateWorkTask} onAddGoogle={addToGoogleTasks} isGoogleConnected={Boolean(session && googleProviderToken)} onConnectGoogle={connectGoogle} />}
 
       {page === "schedule" && <WorkRecordWorkspace kind="schedule" records={workRecords} loading={loading} onSave={saveWorkRecord} onDelete={deleteWorkRecord} />}
       {page === "report" && <WorkRecordWorkspace kind="report" records={workRecords} loading={loading} onSave={saveWorkRecord} onDelete={deleteWorkRecord} />}
@@ -612,7 +688,7 @@ export default function Home() {
   );
 }
 
-function AgendaWorkspace({ meetings, selected, selectedId, loading, onSelect, onUpdate, onAddTask, onRemoveTask, onApplyAi }: {
+function AgendaWorkspace({ meetings, selected, selectedId, loading, onSelect, onUpdate, onAddTask, onRemoveTask, onApplyAi, isConnected, onConnect }: {
   meetings: Meeting[];
   selected?: Meeting;
   selectedId: string;
@@ -622,6 +698,8 @@ function AgendaWorkspace({ meetings, selected, selectedId, loading, onSelect, on
   onAddTask: (agendaIndex: number, task: MeetingTask) => Promise<void>;
   onRemoveTask: (agendaIndex: number, taskIndex: number) => Promise<void>;
   onApplyAi: (result: MeetingAiResult) => Promise<void>;
+  isConnected: boolean;
+  onConnect: () => Promise<void>;
 }) {
   return (
     <div className="workspace">
@@ -685,6 +763,8 @@ function AgendaWorkspace({ meetings, selected, selectedId, loading, onSelect, on
             <MeetingAiWorkspace
               context={{ title: selected.title, participants: selected.participants, agendaTitles: selected.agendas.map((agenda) => agenda.title).filter(Boolean) }}
               onApply={onApplyAi}
+              isConnected={isConnected}
+              onConnect={onConnect}
             />
           </>
         )}
@@ -751,7 +831,14 @@ function Field({ label, value, tone = "", onChange }: { label: string; value: st
   return <label className={`field ${tone}`}><span>{label}</span><textarea value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
-function TaskWorkspace({ tasks, loading, onUpdate }: { tasks: WorkTask[]; loading: boolean; onUpdate: (id: number, patch: Partial<WorkTask>) => Promise<void> }) {
+function TaskWorkspace({ tasks, loading, onUpdate, onAddGoogle, isGoogleConnected, onConnectGoogle }: {
+  tasks: WorkTask[];
+  loading: boolean;
+  onUpdate: (id: number, patch: Partial<WorkTask>) => Promise<void>;
+  onAddGoogle: (task: WorkTask) => Promise<boolean>;
+  isGoogleConnected: boolean;
+  onConnectGoogle: () => Promise<void>;
+}) {
   const [person, setPerson] = useState("全員");
   const [status, setStatus] = useState("すべて");
   const [query, setQuery] = useState("");
@@ -770,7 +857,7 @@ function TaskWorkspace({ tasks, loading, onUpdate }: { tasks: WorkTask[]; loadin
     <section className="task-workspace">
       <div className="task-heading">
         <div><p className="eyebrow">TASK MANAGEMENT</p><h2>タスク管理</h2><p>会議のToDoを含む、すべての業務タスクを管理します。</p></div>
-        <div className="task-stats"><span><strong>{counts.all}</strong>すべて</span><span><strong>{counts.open}</strong>未完了</span><span><strong>{counts.done}</strong>完了</span></div>
+        <div className="task-heading-actions">{!isGoogleConnected ? <button className="secondary-button" onClick={() => void onConnectGoogle()}>G Google Tasksを接続</button> : null}<div className="task-stats"><span><strong>{counts.all}</strong>すべて</span><span><strong>{counts.open}</strong>未完了</span><span><strong>{counts.done}</strong>完了</span></div></div>
       </div>
       <div className="person-tabs">{["全員", ...people].map((item) => <button key={item} className={person === item ? "active" : ""} onClick={() => setPerson(item)}>{item}</button>)}</div>
       <div className="task-toolbar">
@@ -781,16 +868,18 @@ function TaskWorkspace({ tasks, loading, onUpdate }: { tasks: WorkTask[]; loadin
       {loading && <div className="empty-state">読み込み中…</div>}
       <div className="managed-task-list">
         {visible.map((task) => (
-          <ManagedTaskCard key={task.id} task={task} onUpdate={onUpdate} />
+          <ManagedTaskCard key={task.id} task={task} onUpdate={onUpdate} onAddGoogle={onAddGoogle} isGoogleConnected={isGoogleConnected} />
         ))}
       </div>
     </section>
   );
 }
 
-function ManagedTaskCard({ task, onUpdate }: { task: WorkTask; onUpdate: (id: number, patch: Partial<WorkTask>) => Promise<void> }) {
+function ManagedTaskCard({ task, onUpdate, onAddGoogle, isGoogleConnected }: { task: WorkTask; onUpdate: (id: number, patch: Partial<WorkTask>) => Promise<void>; onAddGoogle: (task: WorkTask) => Promise<boolean>; isGoogleConnected: boolean }) {
   const [title, setTitle] = useState(task.title);
   const [category, setCategory] = useState(task.category);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const syncedToGoogle = task.notes.includes("[google-task:");
   useEffect(() => setTitle(task.title), [task.title]);
   useEffect(() => setCategory(task.category), [task.category]);
 
@@ -802,6 +891,7 @@ function ManagedTaskCard({ task, onUpdate }: { task: WorkTask; onUpdate: (id: nu
           <select aria-label="状態" value={task.status} onChange={(event) => void onUpdate(task.id, { status: event.target.value as WorkTask["status"] })}><option>未着手</option><option>作業中</option><option>確認中</option><option>完了</option></select>
           <select aria-label="優先度" value={task.priority} onChange={(event) => void onUpdate(task.id, { priority: event.target.value as WorkTask["priority"] })}><option>高</option><option>中</option><option>低</option></select>
           {task.source_meeting_id ? <span className="meeting-source">会議ToDo</span> : null}
+          <button className={`google-task-button ${syncedToGoogle ? "synced" : ""}`} disabled={googleBusy || syncedToGoogle} onClick={async () => { setGoogleBusy(true); await onAddGoogle(task); setGoogleBusy(false); }}>{syncedToGoogle ? "✓ Google Tasks登録済み" : googleBusy ? "登録中…" : isGoogleConnected ? "G Google Tasksへ追加" : "G 接続して追加"}</button>
         </div>
         <input aria-label="タスク名" className="managed-task-title" value={title} onChange={(event) => setTitle(event.target.value)} onBlur={() => title !== task.title && void onUpdate(task.id, { title })} />
         <div className="managed-fields">
