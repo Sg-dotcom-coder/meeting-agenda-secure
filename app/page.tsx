@@ -880,6 +880,7 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
   const [folder, setFolder] = useState<TaskFolder>("すべて");
   const [sort, setSort] = useState("期限が近い順");
   const visible = useMemo(() => tasks.filter((task) =>
+    task.status !== "完了" &&
     (person === "全員" || task.assignee === person) &&
     (status === "すべて" || task.status === status) &&
     (priority === "すべて" || task.priority === priority) &&
@@ -905,13 +906,14 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
       <div className="task-stats"><span><strong>{counts.open}</strong>未完了</span><span><strong>{counts.working}</strong>作業中</span><span><strong>{counts.checking}</strong>確認中</span><span className="overdue"><strong>{counts.overdue}</strong>期限超過</span></div>
       <nav className="task-folders" aria-label="タスクフォルダ">
         {(["すべて", "🔴", "🟠", "マークなし"] as TaskFolder[]).map((item) => {
-          const count = item === "すべて" ? tasks.length : tasks.filter((task) => getTaskFolder(task.title) === item).length;
+          const activeTasks = tasks.filter((task) => task.status !== "完了");
+          const count = item === "すべて" ? activeTasks.length : activeTasks.filter((task) => getTaskFolder(task.title) === item).length;
           return <button key={item} className={folder === item ? "active" : ""} onClick={() => setFolder(item)}><span>{item}</span><strong>{count}</strong></button>;
         })}
       </nav>
       <div className="task-toolbar">
         <input aria-label="タスク検索" placeholder="タスク名・種類・メモを検索" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select value={status} onChange={(event) => setStatus(event.target.value)}><option>すべて</option><option>未着手</option><option>作業中</option><option>確認中</option><option>完了</option></select>
+        <select value={status} onChange={(event) => setStatus(event.target.value)}><option>すべて</option><option>未着手</option><option>作業中</option><option>確認中</option></select>
         <select aria-label="優先度" value={priority} onChange={(event) => setPriority(event.target.value)}><option>すべて</option><option value="高">高優先度</option><option value="中">中優先度</option><option value="低">低優先度</option></select>
         <select value={sort} onChange={(event) => setSort(event.target.value)}><option>期限が近い順</option><option>更新が新しい順</option><option>並び順</option></select>
         <span>{visible.length}件</span>
