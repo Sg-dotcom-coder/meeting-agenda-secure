@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { publicSupabase, supabase } from "@/lib/supabase";
 import { MeetingAiResult, MeetingAiWorkspace } from "@/app/components/MeetingAiWorkspace";
 import { WorkspaceAssistant } from "@/app/components/WorkspaceAssistant";
 
@@ -233,9 +233,9 @@ export default function Home() {
     setLoading(true);
     setMessage("");
     const [meetingResult, taskResult, recordResult] = await Promise.all([
-      supabase.from("meetings").select("*").order("date", { ascending: false }).order("created_at", { ascending: false }),
-      supabase.from("work_tasks").select("*").order("sort_order").order("created_at", { ascending: false }),
-      supabase.from("work_records").select("*").order("work_date", { ascending: false }).order("updated_at", { ascending: false }),
+      publicSupabase.from("meetings").select("*").order("date", { ascending: false }).order("created_at", { ascending: false }),
+      publicSupabase.from("work_tasks").select("*").order("sort_order").order("created_at", { ascending: false }),
+      publicSupabase.from("work_records").select("*").order("work_date", { ascending: false }).order("updated_at", { ascending: false }),
     ]);
     if (meetingResult.error || taskResult.error || recordResult.error) {
       setMessage("データを読み込めませんでした。ログイン状態または通信をご確認ください。");
