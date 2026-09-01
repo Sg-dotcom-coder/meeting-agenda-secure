@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { MeetingAiResult, MeetingAiWorkspace } from "@/app/components/MeetingAiWorkspace";
+import { WorkspaceAssistant } from "@/app/components/WorkspaceAssistant";
 
 type WorkspacePage = "agenda" | "schedule" | "report" | "tasks" | "redmine";
 type SaveState = "saved" | "saving" | "error";
@@ -394,6 +396,80 @@ export default function Home() {
     }));
   }
 
+  async function applyMeetingAi(result: MeetingAiResult) {
+    if (!selected) return;
+    setSaveState("saving");
+    const existingTexts = new Set(selected.agendas.flatMap((agenda) => agenda.tasks.map((task) => task.text.trim().toLowerCase())).filter(Boolean));
+    const created = new Map<string, MeetingTask>();
+    const seenAiTasks = new Set<string>();
+    const pending = result.agendas.flatMap((agenda, agendaIndex) => agenda.tasks.map((task, taskIndex) => ({ agenda, agendaIndex, task, taskIndex })))
+      .filter(({ task }) => {
+        const key = task.text.trim().toLowerCase();
+        if (!key || existingTexts.has(key) || seenAiTasks.has(key)) return false;
+        seenAiTasks.add(key);
+        return true;
+      });
+
+    const inserts = await Promise.all(pending.map(async ({ agenda, agendaIndex, task, taskIndex }) => {
+      const { data, error } = await supabase.from("work_tasks").insert({
+        title: task.text.trim(),
+        category: "その他",
+        assignee: people.includes(task.owner) ? task.owner : "",
+        status: "未着手",
+        priority: "中",
+        due_date: task.due || null,
+        source_meeting_id: selected.id,
+        source_label: selected.title,
+        notes: agenda.title ? `AI議事録: ${agenda.title}` : "AI議事録",
+      }).select("*").single();
+      return { key: `${agendaIndex}:${taskIndex}`, data: data as WorkTask | null, error };
+    }));
+
+    if (inserts.some((item) => item.error || !item.data)) {
+      const insertedIds = inserts.flatMap((item) => item.data ? [item.data.id] : []);
+      if (insertedIds.length) await supabase.from("work_tasks").delete().in("id", insertedIds);
+      setSaveState("error");
+      setMessage("AI議事録のToDoをタスク管理へ連携できませんでした。");
+      return;
+    }
+    inserts.forEach((item) => {
+      if (item.data) created.set(item.key, { text: item.data.title, owner: item.data.assignee, due: item.data.due_date ?? "", workTaskId: item.data.id });
+    });
+    setTasks((current) => [...inserts.flatMap((item) => item.data ? [item.data] : []), ...current]);
+
+    const used = new Set<number>();
+    const merged = selected.agendas.map((agenda) => {
+      const index = result.agendas.findIndex((candidate, candidateIndex) => !used.has(candidateIndex) && candidate.title.trim().toLowerCase() === agenda.title.trim().toLowerCase());
+      if (index < 0) return agenda;
+      used.add(index);
+      const draft = result.agendas[index];
+      const additions = draft.tasks.flatMap((task, taskIndex) => {
+        if (existingTexts.has(task.text.trim().toLowerCase())) return [];
+        const linked = created.get(`${index}:${taskIndex}`);
+        return linked ? [linked] : [];
+      });
+      return {
+        ...agenda,
+        title: agenda.title.trim() ? agenda.title : draft.title,
+        decideTarget: agenda.decideTarget.trim() ? agenda.decideTarget : draft.decideTarget,
+        note: agenda.note.trim() ? `${agenda.note}\n\n${draft.note}`.trim() : draft.note,
+        decision: agenda.decision.trim() ? agenda.decision : draft.decision,
+        continueThinking: agenda.continueThinking.trim() ? agenda.continueThinking : draft.continueThinking,
+        tasks: [...agenda.tasks, ...additions],
+      };
+    });
+    result.agendas.forEach((agenda, agendaIndex) => {
+      if (used.has(agendaIndex)) return;
+      merged.push({ ...agenda, tasks: agenda.tasks.flatMap((_, taskIndex) => {
+        const linked = created.get(`${agendaIndex}:${taskIndex}`);
+        return linked ? [linked] : [];
+      }) });
+    });
+    const nextMeeting = { ...selected, agendas: merged, summary: result.summary || selected.summary };
+    setMeetings((current) => current.map((meeting) => meeting.id === nextMeeting.id ? nextMeeting : meeting));
+    await persistMeeting(nextMeeting);
+  }
+
   async function updateWorkTask(id: number, patch: Partial<WorkTask>) {
     setTasks((current) => current.map((task) => task.id === id ? { ...task, ...patch } : task));
     setSaveState("saving");
@@ -514,6 +590,7 @@ export default function Home() {
           onUpdate={updateMeeting}
           onAddTask={addAgendaTask}
           onRemoveTask={removeAgendaTask}
+          onApplyAi={applyMeetingAi}
         />
       )}
 
@@ -523,12 +600,19 @@ export default function Home() {
       {page === "report" && <WorkRecordWorkspace kind="report" records={workRecords} loading={loading} onSave={saveWorkRecord} onDelete={deleteWorkRecord} />}
       {page === "redmine" && <RedmineWorkspace />}
 
+      <WorkspaceAssistant context={{
+        currentPage: page,
+        selectedMeeting: selected ? { title: selected.title, date: selected.date, participants: selected.participants, summary: selected.summary, agendas: selected.agendas } : null,
+        tasks: tasks.slice(0, 150).map(({ id, title, assignee, status, priority, due_date, category, source_label }) => ({ id, title, assignee, status, priority, due_date, category, source_label })),
+        workRecords: workRecords.slice(0, 30),
+      }} />
+
       {newMeetingOpen && <NewMeetingModal onClose={() => setNewMeetingOpen(false)} onSubmit={createMeeting} />}
     </main>
   );
 }
 
-function AgendaWorkspace({ meetings, selected, selectedId, loading, onSelect, onUpdate, onAddTask, onRemoveTask }: {
+function AgendaWorkspace({ meetings, selected, selectedId, loading, onSelect, onUpdate, onAddTask, onRemoveTask, onApplyAi }: {
   meetings: Meeting[];
   selected?: Meeting;
   selectedId: string;
@@ -537,6 +621,7 @@ function AgendaWorkspace({ meetings, selected, selectedId, loading, onSelect, on
   onUpdate: (transform: (meeting: Meeting) => Meeting) => void;
   onAddTask: (agendaIndex: number, task: MeetingTask) => Promise<void>;
   onRemoveTask: (agendaIndex: number, taskIndex: number) => Promise<void>;
+  onApplyAi: (result: MeetingAiResult) => Promise<void>;
 }) {
   return (
     <div className="workspace">
@@ -596,6 +681,11 @@ function AgendaWorkspace({ meetings, selected, selectedId, loading, onSelect, on
               <p>会議全体の結論や重要なポイントを、最後にまとめて残せます。</p>
               <textarea aria-label="会議の要約" value={selected.summary} placeholder="会議全体の要約を入力" onChange={(event) => onUpdate((meeting) => ({ ...meeting, summary: event.target.value }))} />
             </section>
+
+            <MeetingAiWorkspace
+              context={{ title: selected.title, participants: selected.participants, agendaTitles: selected.agendas.map((agenda) => agenda.title).filter(Boolean) }}
+              onApply={onApplyAi}
+            />
           </>
         )}
       </section>
