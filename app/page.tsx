@@ -168,6 +168,13 @@ function createEntry(): TimeEntry {
   return { id: crypto.randomUUID(), start: "09:00", end: "10:00", category: "", detail: "" };
 }
 
+type TaskFolder = "すべて" | "🔴" | "🟠" | "マークなし";
+function getTaskFolder(title: string): Exclude<TaskFolder, "すべて"> {
+  if (title.includes("🔴")) return "🔴";
+  if (title.includes("🟠")) return "🟠";
+  return "マークなし";
+}
+
 function normalizeEntries(value: unknown): TimeEntry[] {
   if (!Array.isArray(value)) return [];
   return value.map((item, index) => {
@@ -409,7 +416,7 @@ export default function Home() {
         category: "その他",
         assignee: people.includes(draft.owner) ? draft.owner : "",
         status: "未着手",
-        priority: "低",
+        priority: "中",
         due_date: draft.due || null,
         source_meeting_id: selected.id,
         source_label: selected.title,
@@ -469,7 +476,7 @@ export default function Home() {
         category: "その他",
         assignee: people.includes(task.owner) ? task.owner : "",
         status: "未着手",
-        priority: "低",
+        priority: "中",
         due_date: task.due || null,
         source_meeting_id: selected.id,
         source_label: selected.title,
@@ -564,7 +571,7 @@ export default function Home() {
   async function createWorkTask() {
     setSaveState("saving");
     const { data, error } = await supabase.from("work_tasks").insert({
-      title: "新しいタスク", category: "その他", assignee: "", status: "未着手", priority: "低",
+      title: "新しいタスク", category: "その他", assignee: "", status: "未着手", priority: "中",
       due_date: null, shooting_date: null, related_url: "", notes: "", source_label: "手動作成",
       sort_order: tasks.length ? Math.max(...tasks.map((task) => task.sort_order || 0)) + 1 : 1,
     }).select("*").single();
@@ -865,15 +872,17 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
   const [status, setStatus] = useState("すべて");
   const [query, setQuery] = useState("");
   const [priority, setPriority] = useState("すべて");
+  const [folder, setFolder] = useState<TaskFolder>("すべて");
   const [sort, setSort] = useState("期限が近い順");
   const visible = useMemo(() => tasks.filter((task) =>
     (person === "全員" || task.assignee === person) &&
     (status === "すべて" || task.status === status) &&
     (priority === "すべて" || task.priority === priority) &&
+    (folder === "すべて" || getTaskFolder(task.title) === folder) &&
     (!query || `${task.title} ${task.source_label} ${task.notes}`.toLowerCase().includes(query.toLowerCase())),
   ).sort((a, b) => sort === "期限が近い順"
     ? (a.due_date || "9999-12-31").localeCompare(b.due_date || "9999-12-31") || a.sort_order - b.sort_order
-    : sort === "更新が新しい順" ? b.updated_at.localeCompare(a.updated_at) : a.sort_order - b.sort_order), [tasks, person, status, priority, query, sort]);
+    : sort === "更新が新しい順" ? b.updated_at.localeCompare(a.updated_at) : a.sort_order - b.sort_order), [tasks, person, status, priority, folder, query, sort]);
   const counts = useMemo(() => ({
     open: tasks.filter((task) => task.status !== "完了").length,
     working: tasks.filter((task) => task.status === "作業中").length,
@@ -889,10 +898,16 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
       </div>
       <div className="person-tabs">{["全員", ...people].map((item) => <button key={item} className={person === item ? "active" : ""} onClick={() => setPerson(item)}>{item}</button>)}</div>
       <div className="task-stats"><span><strong>{counts.open}</strong>未完了</span><span><strong>{counts.working}</strong>作業中</span><span><strong>{counts.checking}</strong>確認中</span><span className="overdue"><strong>{counts.overdue}</strong>期限超過</span></div>
+      <nav className="task-folders" aria-label="タスクフォルダ">
+        {(["すべて", "🔴", "🟠", "マークなし"] as TaskFolder[]).map((item) => {
+          const count = item === "すべて" ? tasks.length : tasks.filter((task) => getTaskFolder(task.title) === item).length;
+          return <button key={item} className={folder === item ? "active" : ""} onClick={() => setFolder(item)}><span>{item}</span><strong>{count}</strong></button>;
+        })}
+      </nav>
       <div className="task-toolbar">
         <input aria-label="タスク検索" placeholder="タスク名・種類・メモを検索" value={query} onChange={(event) => setQuery(event.target.value)} />
         <select value={status} onChange={(event) => setStatus(event.target.value)}><option>すべて</option><option>未着手</option><option>作業中</option><option>確認中</option><option>完了</option></select>
-        <select aria-label="マーク" value={priority} onChange={(event) => setPriority(event.target.value)}><option>すべて</option><option value="高">🔴 赤マーク</option><option value="中">🟠 オレンジ</option><option value="低">マークなし</option></select>
+        <select aria-label="優先度" value={priority} onChange={(event) => setPriority(event.target.value)}><option>すべて</option><option value="高">高優先度</option><option value="中">中優先度</option><option value="低">低優先度</option></select>
         <select value={sort} onChange={(event) => setSort(event.target.value)}><option>期限が近い順</option><option>更新が新しい順</option><option>並び順</option></select>
         <span>{visible.length}件</span>
       </div>
@@ -915,12 +930,12 @@ function ManagedTaskCard({ task, onUpdate, onDelete, onAddGoogle, isGoogleConnec
   useEffect(() => setCategory(task.category), [task.category]);
 
   return (
-    <article className={`managed-task priority-${task.priority}`}>
+    <article className={`managed-task status-${task.status}`}>
       <div className="task-accent" />
       <div className="managed-task-main">
         <div className="managed-task-top">
           <select aria-label="状態" value={task.status} onChange={(event) => void onUpdate(task.id, { status: event.target.value as WorkTask["status"] })}><option>未着手</option><option>作業中</option><option>確認中</option><option>完了</option></select>
-          <select aria-label="マーク" value={task.priority} onChange={(event) => void onUpdate(task.id, { priority: event.target.value as WorkTask["priority"] })}><option value="高">🔴 赤マーク</option><option value="中">🟠 オレンジ</option><option value="低">マークなし</option></select>
+          <select aria-label="優先度" value={task.priority} onChange={(event) => void onUpdate(task.id, { priority: event.target.value as WorkTask["priority"] })}><option>高</option><option>中</option><option>低</option></select>
           {task.source_meeting_id ? <span className="meeting-source">会議ToDo</span> : null}
           <button className={`google-task-button ${syncedToGoogle ? "synced" : ""}`} disabled={googleBusy || syncedToGoogle} onClick={async () => { setGoogleBusy(true); await onAddGoogle(task); setGoogleBusy(false); }}>{syncedToGoogle ? "✓ Google Tasks登録済み" : googleBusy ? "登録中…" : isGoogleConnected ? "G Google Tasksへ追加" : "G 接続して追加"}</button>
           <button className="task-delete" onClick={() => window.confirm("このタスクを削除しますか？") && void onDelete(task.id)}>削除</button>
