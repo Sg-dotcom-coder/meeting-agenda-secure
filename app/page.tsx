@@ -1043,7 +1043,7 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
         <div className={`record-grid ${kind === "report" ? "report-grid" : ""}`}>
           <div className="record-editor">
             <section className="record-card">
-              <div className="record-card-heading"><div><span>01</span><h3>{kind === "schedule" ? "②スケジュール" : "時間別の業務"}</h3></div><button className="secondary-button" onClick={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: [...current.items, createEntry()] })) : changeReport((current) => ({ ...current, entries: [...current.entries, createEntry()] }))}>＋ 行を追加</button></div>
+              <div className="record-card-heading"><div><span>01</span><h3>{kind === "schedule" ? "②スケジュール" : "◎業務内容"}</h3></div><button className="secondary-button" onClick={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: [...current.items, createEntry()] })) : changeReport((current) => ({ ...current, entries: [...current.entries, createEntry()] }))}>＋ 行を追加</button></div>
               <div className="time-entry-list">
                 {entries.length === 0 ? <p className="record-empty">まだ時間別の業務がありません。</p> : null}
                 {entries.map((entry) => <TimeEntryRow key={entry.id} entry={entry} onChange={(patch) => changeEntry(kind, entry.id, patch)} onRemove={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: current.items.filter((item) => item.id !== entry.id) })) : changeReport((current) => ({ ...current, entries: current.entries.filter((item) => item.id !== entry.id) }))} />)}
@@ -1058,12 +1058,12 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
               </section>
             ) : (
               <section className="record-fields report-fields">
-                <RecordField label="業務内容" value={report.reportContent} onChange={(value) => changeReport((current) => ({ ...current, reportContent: value }))} />
+                <RecordField label="報告内容" value={report.reportContent} onChange={(value) => changeReport((current) => ({ ...current, reportContent: value }))} />
                 <RecordField label="相談内容" value={report.consultationContent} onChange={(value) => changeReport((current) => ({ ...current, consultationContent: value }))} />
                 <RecordField label="振り返り" value={report.reflection} onChange={(value) => changeReport((current) => ({ ...current, reflection: value }))} />
                 <RecordField label="成果・改善点" value={report.improvements} onChange={(value) => changeReport((current) => ({ ...current, improvements: value }))} />
-                <RecordField label="明日取り組むこと" value={report.nextFocus} onChange={(value) => changeReport((current) => ({ ...current, nextFocus: value }))} />
-                <RecordField label="明日予定のタスク" value={report.undatedTasks} onChange={(value) => changeReport((current) => ({ ...current, undatedTasks: value }))} />
+                <RecordField label="次回取り組むこと" value={report.nextFocus} onChange={(value) => changeReport((current) => ({ ...current, nextFocus: value }))} />
+                <RecordField label="日付未定のタスク" value={report.undatedTasks} onChange={(value) => changeReport((current) => ({ ...current, undatedTasks: value }))} />
                 <div className="record-card report-next"><label className="record-field"><span>次回出勤日</span><input type="date" value={report.nextWorkDate} onChange={(event) => changeReport((current) => ({ ...current, nextWorkDate: event.target.value }))} /></label><RecordField label="次回の業務予定" value={report.nextSchedule} onChange={(value) => changeReport((current) => ({ ...current, nextSchedule: value }))} /><RecordField label="その他" value={report.other} onChange={(value) => changeReport((current) => ({ ...current, other: value }))} /></div>
               </section>
             )}
@@ -1111,10 +1111,24 @@ function buildScheduleText(person: string, workDate: string, payload: SchedulePa
 }
 
 function buildReportText(person: string, workDate: string, payload: ReportPayload) {
-  const lines = [`【日報】${workDate} / ${person}`];
-  if (payload.entries.length) lines.push("", "■ 時間別", ...payload.entries.map((item) => `${item.start || "--:--"}〜${item.end || "--:--"}  ${item.category ? `[${item.category}] ` : ""}${item.detail}`));
-  const sections: [string, string][] = [["本日の業務内容", payload.reportContent], ["相談・確認事項", payload.consultationContent], ["振り返り", payload.reflection], ["改善点", payload.improvements], ["次回の重点", payload.nextFocus], ["次回出勤日", payload.nextWorkDate], ["次回予定", payload.nextSchedule], ["期限未定タスク", payload.undatedTasks], ["その他", payload.other]];
-  sections.forEach(([label, value]) => { if (value) lines.push("", `■ ${label}`, value); });
+  void person;
+  const [, month = "", day = ""] = workDate.split("-");
+  const displayMonth = String(Number(month));
+  const displayDay = String(Number(day));
+  const lines = ["お疲れ様です。", "本日分の日報を提出させていただきます。", "", "ーーーーーーーーーーーーーーーーーーーーーーーーーーーー", "", `【${displayMonth}/${displayDay}日報】`];
+  const entries = payload.entries.filter((item) => item.category.trim() || item.detail.trim());
+  if (entries.length) lines.push("", "◎業務内容", ...entries.flatMap((item) => [`・${item.start || "--:--"}〜${item.end || "--:--"}`, [item.category.trim(), item.detail.trim()].filter(Boolean).join("\n"), ""]));
+  const reportSections: [string, string][] = [["報告内容", payload.reportContent], ["相談内容", payload.consultationContent], ["振り返り", payload.reflection], ["成果・改善点", payload.improvements]];
+  reportSections.forEach(([label, value]) => { if (value.trim()) lines.push(`◎${label}`, value.trim(), ""); });
+  const futureSections: [string, string][] = [["次回取り組むこと", payload.nextFocus], ["日付未定のタスク", payload.undatedTasks], ["その他", payload.other]];
+  const hasFuture = payload.nextSchedule.trim() || futureSections.some(([, value]) => value.trim());
+  if (hasFuture) lines.push("ーーーーーーーーーーーーーーーーーーーーーーーーーーーー");
+  if (payload.nextSchedule.trim()) {
+    const [, nextMonth = "", nextDay = ""] = payload.nextWorkDate.split("-");
+    const nextLabel = nextMonth && nextDay ? `${Number(nextMonth)}/${Number(nextDay)}　業務予定` : "次回の業務予定";
+    lines.push("", `◎${nextLabel}`, payload.nextSchedule.trim(), "");
+  }
+  futureSections.forEach(([label, value]) => { if (value.trim()) lines.push(`◎${label}`, value.trim(), ""); });
   return lines.join("\n");
 }
 
