@@ -1099,10 +1099,14 @@ function buildScheduleText(person: string, workDate: string, payload: SchedulePa
     if (!hour) return "時間未定";
     return minute && minute !== "00" ? `${Number(hour)}時${Number(minute)}分` : `${Number(hour)}時`;
   };
-  const lines = ["お疲れ様です。", `本日${displayMonth}月${displayDay}日の業務予定です。`, "", "ーーーーーーーーーーーーーーーーーーーーーーーーーーーー", "", `【${displayMonth}/${displayDay} 業務予定】`, "①タスク", payload.tasks || "未入力", "", "②スケジュール"];
-  if (payload.items.length) lines.push(...payload.items.flatMap((item) => [`・${formatTime(item.start)}`, [item.category, item.detail].filter(Boolean).join(" ") || "未入力", ""]));
-  else lines.push("未入力", "");
-  lines.push("③優先順位", payload.priorities || "未入力", "", "④本日の目標", payload.dailyGoal || "未入力", "", "⑤今週の目標", payload.weeklyGoal || "未入力");
+  const lines = ["お疲れ様です。", `本日${displayMonth}月${displayDay}日の業務予定です。`, "", "ーーーーーーーーーーーーーーーーーーーーーーーーーーーー", "", `【${displayMonth}/${displayDay} 業務予定】`];
+  if (payload.tasks.trim()) lines.push("①タスク", payload.tasks.trim(), "");
+  const scheduleItems = payload.items.filter((item) => item.category.trim() || item.detail.trim());
+  if (scheduleItems.length) lines.push("②スケジュール", ...scheduleItems.flatMap((item) => [`・${formatTime(item.start)}`, [item.category.trim(), item.detail.trim()].filter(Boolean).join(" "), ""]));
+  const priorities = payload.priorities.split("\n").map((line) => line.trim().replace(/^\d+[.．、)）]\s*/, "")).filter(Boolean);
+  if (priorities.length) lines.push("③優先順位", ...priorities.map((line, index) => `${index + 1}.${line}`), "");
+  if (payload.dailyGoal.trim()) lines.push("④本日の目標", payload.dailyGoal.trim(), "");
+  if (payload.weeklyGoal.trim()) lines.push("⑤今週の目標", payload.weeklyGoal.trim());
   return lines.join("\n");
 }
 
