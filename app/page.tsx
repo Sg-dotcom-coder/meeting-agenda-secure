@@ -1043,7 +1043,7 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
         <div className={`record-grid ${kind === "report" ? "report-grid" : ""}`}>
           <div className="record-editor">
             <section className="record-card">
-              <div className="record-card-heading"><div><span>01</span><h3>時間別の業務</h3></div><button className="secondary-button" onClick={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: [...current.items, createEntry()] })) : changeReport((current) => ({ ...current, entries: [...current.entries, createEntry()] }))}>＋ 行を追加</button></div>
+              <div className="record-card-heading"><div><span>01</span><h3>{kind === "schedule" ? "②スケジュール" : "時間別の業務"}</h3></div><button className="secondary-button" onClick={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: [...current.items, createEntry()] })) : changeReport((current) => ({ ...current, entries: [...current.entries, createEntry()] }))}>＋ 行を追加</button></div>
               <div className="time-entry-list">
                 {entries.length === 0 ? <p className="record-empty">まだ時間別の業務がありません。</p> : null}
                 {entries.map((entry) => <TimeEntryRow key={entry.id} entry={entry} onChange={(patch) => changeEntry(kind, entry.id, patch)} onRemove={() => kind === "schedule" ? changeSchedule((current) => ({ ...current, items: current.items.filter((item) => item.id !== entry.id) })) : changeReport((current) => ({ ...current, entries: current.entries.filter((item) => item.id !== entry.id) }))} />)}
@@ -1052,9 +1052,9 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
 
             {kind === "schedule" ? (
               <section className="record-card record-fields">
-                <RecordField label="今日のタスク" value={schedule.tasks} onChange={(value) => changeSchedule((current) => ({ ...current, tasks: value }))} />
-                <RecordField label="優先順位" value={schedule.priorities} onChange={(value) => changeSchedule((current) => ({ ...current, priorities: value }))} />
-                <div className="two-column"><RecordField label="今日の目標" value={schedule.dailyGoal} onChange={(value) => changeSchedule((current) => ({ ...current, dailyGoal: value }))} /><RecordField label="今週の目標" value={schedule.weeklyGoal} onChange={(value) => changeSchedule((current) => ({ ...current, weeklyGoal: value }))} /></div>
+                <RecordField label="①タスク" value={schedule.tasks} onChange={(value) => changeSchedule((current) => ({ ...current, tasks: value }))} />
+                <RecordField label="③優先順位" value={schedule.priorities} onChange={(value) => changeSchedule((current) => ({ ...current, priorities: value }))} />
+                <div className="two-column"><RecordField label="④本日の目標" value={schedule.dailyGoal} onChange={(value) => changeSchedule((current) => ({ ...current, dailyGoal: value }))} /><RecordField label="⑤今週の目標" value={schedule.weeklyGoal} onChange={(value) => changeSchedule((current) => ({ ...current, weeklyGoal: value }))} /></div>
               </section>
             ) : (
               <section className="record-fields report-fields">
@@ -1090,12 +1090,19 @@ function RecordField({ label, value, onChange }: { label: string; value: string;
 }
 
 function buildScheduleText(person: string, workDate: string, payload: SchedulePayload) {
-  const lines = [`【業務予定】${workDate} / ${person}`];
-  if (payload.items.length) lines.push("", "■ 時間別", ...payload.items.map((item) => `${item.start || "--:--"}〜${item.end || "--:--"}  ${item.category ? `[${item.category}] ` : ""}${item.detail}`));
-  if (payload.tasks) lines.push("", "■ 今日のタスク", payload.tasks);
-  if (payload.priorities) lines.push("", "■ 優先順位", payload.priorities);
-  if (payload.dailyGoal) lines.push("", "■ 今日の目標", payload.dailyGoal);
-  if (payload.weeklyGoal) lines.push("", "■ 今週の目標", payload.weeklyGoal);
+  void person;
+  const [, month = "", day = ""] = workDate.split("-");
+  const displayMonth = String(Number(month));
+  const displayDay = String(Number(day));
+  const formatTime = (value: string) => {
+    const [hour, minute] = value.split(":");
+    if (!hour) return "時間未定";
+    return minute && minute !== "00" ? `${Number(hour)}時${Number(minute)}分` : `${Number(hour)}時`;
+  };
+  const lines = ["お疲れ様です。", `本日${displayMonth}月${displayDay}日の業務予定です。`, "", "ーーーーーーーーーーーーーーーーーーーーーーーーーーーー", "", `【${displayMonth}/${displayDay} 業務予定】`, "①タスク", payload.tasks || "未入力", "", "②スケジュール"];
+  if (payload.items.length) lines.push(...payload.items.flatMap((item) => [`・${formatTime(item.start)}`, [item.category, item.detail].filter(Boolean).join(" ") || "未入力", ""]));
+  else lines.push("未入力", "");
+  lines.push("③優先順位", payload.priorities || "未入力", "", "④本日の目標", payload.dailyGoal || "未入力", "", "⑤今週の目標", payload.weeklyGoal || "未入力");
   return lines.join("\n");
 }
 
