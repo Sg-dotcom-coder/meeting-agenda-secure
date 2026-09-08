@@ -37,8 +37,10 @@ export async function POST(request: NextRequest) {
     const segments = title.split(/\s*[┃|｜]\s*/).map(normalizeText).filter(Boolean);
     const name = normalizeText(person?.name ?? segments[0]?.replace(/\s*ホスト紹介.*$/, "") ?? "");
     const kana = normalizeText(person?.alternateName ?? "");
-    const store = normalizeText((segments[1] ?? "").replace(/\s*[（(][^）)]*[）)]\s*/g, " "));
-    const area = normalizeText((segments[2] ?? "").replace(/ホストクラブ.*$/, ""));
+    const storeAndArea = segments[1] ?? "";
+    const shopMatch = storeAndArea.match(/^(.+?)\s*[（(][^）)]*[）)]\s*(.*)$/);
+    const store = normalizeText(shopMatch?.[1] ?? storeAndArea);
+    const area = normalizeText(shopMatch?.[2] ?? "");
     if (!name) return NextResponse.json({ error: "キャスト情報を取得できませんでした。" }, { status: 422 });
     return NextResponse.json({ name, kana, area, store });
   } catch (error) {
