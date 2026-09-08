@@ -1185,33 +1185,341 @@ function buildReportText(person: string, workDate: string, payload: ReportPayloa
 
 type RedmineCast = { id: string; url: string; name: string; kana: string; revision: string };
 function RedmineWorkspace() {
-  const [form, setForm] = useState({ requestType: "ホスト特集", area: "", store: "", template: "①〜⑤から自動選択", sharedNotes: "" });
-  const [casts, setCasts] = useState<RedmineCast[]>([{ id: crypto.randomUUID(), url: "", name: "", kana: "", revision: "" }]);
+  const [form, setForm] = useState({
+    requestType: "ホスト特集",
+    area: "",
+    store: "",
+    template: "①〜⑤から自動選択",
+    sharedNotes: "",
+  });
+  const [casts, setCasts] = useState<RedmineCast[]>([
+    { id: crypto.randomUUID(), url: "", name: "", kana: "", revision: "" },
+  ]);
   const [copied, setCopied] = useState(false);
-  const text = [`h1. ${form.area || "エリア"} ${form.store || "店舗名"} ${form.requestType}`, "", ...casts.flatMap((cast, index) => [`h2. キャスト${index + 1}：${cast.name || "名前未入力"}`, `* キャストページ：${cast.url || "未入力"}`, `* 読み仮名：${cast.kana || "未入力"}`, "", cast.revision || "修正内容を入力してください。", ""]), ...(form.sharedNotes ? ["h2. 共通の備考", form.sharedNotes] : [])].join("\n");
-  async function copyText() { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1600); }
-  const updateCast = (id: string, patch: Partial<RedmineCast>) => setCasts((current) => current.map((cast) => cast.id === id ? { ...cast, ...patch } : cast));
-  return <section className="record-workspace redmine-workspace"><div className="record-heading"><div><p className="eyebrow">REDMINE TEXT MAKER</p><h2>Redmine文章作成</h2><p>以前のテンプレートと同じ形式で、貼り付け用の文章を作成します。</p></div></div><div className="redmine-stack"><section className="record-card"><div className="record-card-heading"><div><span>01</span><h3>基本情報</h3></div></div><div className="redmine-basic"><label className="record-field"><span>依頼種別</span><select value={form.requestType} onChange={(event) => setForm({ ...form, requestType: event.target.value })}><option>ホスト特集</option><option>店舗情報修正</option><option>キャスト情報修正</option></select></label><label className="record-field"><span>地域</span><input placeholder="例：大阪ミナミ" value={form.area} onChange={(event) => setForm({ ...form, area: event.target.value })} /></label><label className="record-field"><span>店舗</span><input placeholder="店舗名" value={form.store} onChange={(event) => setForm({ ...form, store: event.target.value })} /></label></div></section><section className="record-card"><div className="record-card-heading"><div><span>02</span><h3>ホスト特集</h3></div><button className="primary-button" onClick={() => setCasts((current) => [...current, { id: crypto.randomUUID(), url: "", name: "", kana: "", revision: "" }])}>＋ キャスト追加</button></div><div className="redmine-settings"><label className="record-field"><span>データ参照元URL</span><input placeholder="資料フォルダのURL" /></label><label className="record-field"><span>タイトル種類</span><input value="イケメン" readOnly /></label><label className="record-field"><span>本文テンプレート</span><select value={form.template} onChange={(event) => setForm({ ...form, template: event.target.value })}><option>①〜⑤から自動選択</option><option>①</option><option>②</option><option>③</option><option>④</option><option>⑤</option></select></label></div><div className="cast-grid">{casts.map((cast, index) => <article className="cast-card" key={cast.id}><div className="cast-title"><strong>キャスト {index + 1}</strong>{casts.length > 1 && <button onClick={() => setCasts((current) => current.filter((item) => item.id !== cast.id))}>削除</button>}</div><label className="record-field"><span>キャストページURL</span><div className="url-row"><input placeholder="Star-GuysのキャストURLを貼り付け" value={cast.url} onChange={(event) => updateCast(cast.id, { url: event.target.value })} /><button className="secondary-button">URLから取得</button></div></label><div className="two-column"><label className="record-field"><span>名前</span><input value={cast.name} onChange={(event) => updateCast(cast.id, { name: event.target.value })} /></label><label className="record-field"><span>読み仮名</span><input value={cast.kana} onChange={(event) => updateCast(cast.id, { kana: event.target.value })} /></label></div><RecordField label="修正内容" value={cast.revision} onChange={(value) => updateCast(cast.id, { revision: value })} /></article>)}</div><RecordField label="共通の備考" value={form.sharedNotes} onChange={(value) => setForm({ ...form, sharedNotes: value })} /></section><aside className="record-preview redmine-preview"><div className="preview-heading"><div><p className="eyebrow">TEXT TEMPLATE</p><h3>Redmine貼り付け用の完成文</h3></div><button className="primary-button" onClick={() => void copyText()}>{copied ? "コピー済み ✓" : "Redmine文章をコピー"}</button></div><pre>{text}</pre></aside></div></section>;
+  const [fetchingId, setFetchingId] = useState("");
+  const [fetchError, setFetchError] = useState("");
+  const text = [
+    `h1. ${form.area || "エリア"} ${form.store || "店舗名"} ${form.requestType}`,
+    "",
+    ...casts.flatMap((cast, index) => [
+      `h2. キャスト${index + 1}：${cast.name || "名前未入力"}`,
+      `* キャストページ：${cast.url || "未入力"}`,
+      `* 読み仮名：${cast.kana || "未入力"}`,
+      "",
+      cast.revision || "修正内容を入力してください。",
+      "",
+    ]),
+    ...(form.sharedNotes ? ["h2. 共通の備考", form.sharedNotes] : []),
+  ].join("\n");
+  async function copyText() {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  }
+  const updateCast = (id: string, patch: Partial<RedmineCast>) =>
+    setCasts((current) =>
+      current.map((cast) => (cast.id === id ? { ...cast, ...patch } : cast)),
+    );
+  async function fetchCast(cast: RedmineCast) {
+    if (!cast.url.trim() || fetchingId) return;
+    setFetchingId(cast.id);
+    setFetchError("");
+    try {
+      const response = await fetch("/api/redmine-cast", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: cast.url }),
+      });
+      const result = (await response.json()) as { name?: string; kana?: string; area?: string; store?: string; error?: string };
+      if (!response.ok) throw new Error(result.error || "取得できませんでした。");
+      updateCast(cast.id, { name: result.name ?? "", kana: result.kana ?? "" });
+      setForm((current) => ({ ...current, area: result.area || current.area, store: result.store || current.store }));
+    } catch (error) {
+      setFetchError(error instanceof Error ? error.message : "URLから情報を取得できませんでした。");
+    } finally {
+      setFetchingId("");
+    }
+  }
+  return (
+    <section className="record-workspace redmine-workspace">
+      <div className="record-heading">
+        <div>
+          <p className="eyebrow">REDMINE TEXT MAKER</p>
+          <h2>Redmine文章作成</h2>
+          <p>以前のテンプレートと同じ形式で、貼り付け用の文章を作成します。</p>
+        </div>
+      </div>
+      <div className="redmine-stack">
+        <section className="record-card">
+          <div className="record-card-heading">
+            <div>
+              <span>01</span>
+              <h3>基本情報</h3>
+            </div>
+          </div>
+          <div className="redmine-basic">
+            <label className="record-field">
+              <span>依頼種別</span>
+              <select
+                value={form.requestType}
+                onChange={(event) =>
+                  setForm({ ...form, requestType: event.target.value })
+                }
+              >
+                <option>ホスト特集</option>
+                <option>店舗情報修正</option>
+                <option>キャスト情報修正</option>
+              </select>
+            </label>
+            <label className="record-field">
+              <span>地域</span>
+              <input
+                placeholder="例：大阪ミナミ"
+                value={form.area}
+                onChange={(event) =>
+                  setForm({ ...form, area: event.target.value })
+                }
+              />
+            </label>
+            <label className="record-field">
+              <span>店舗</span>
+              <input
+                placeholder="店舗名"
+                value={form.store}
+                onChange={(event) =>
+                  setForm({ ...form, store: event.target.value })
+                }
+              />
+            </label>
+          </div>
+        </section>
+        <section className="record-card">
+          <div className="record-card-heading">
+            <div>
+              <span>02</span>
+              <h3>ホスト特集</h3>
+            </div>
+            <button
+              className="primary-button"
+              onClick={() =>
+                setCasts((current) => [
+                  ...current,
+                  {
+                    id: crypto.randomUUID(),
+                    url: "",
+                    name: "",
+                    kana: "",
+                    revision: "",
+                  },
+                ])
+              }
+            >
+              ＋ キャスト追加
+            </button>
+          </div>
+          <div className="redmine-settings">
+            <label className="record-field">
+              <span>データ参照元URL</span>
+              <input placeholder="資料フォルダのURL" />
+            </label>
+            <label className="record-field">
+              <span>タイトル種類</span>
+              <input value="イケメン" readOnly />
+            </label>
+            <label className="record-field">
+              <span>本文テンプレート</span>
+              <select
+                value={form.template}
+                onChange={(event) =>
+                  setForm({ ...form, template: event.target.value })
+                }
+              >
+                <option>①〜⑤から自動選択</option>
+                <option>①</option>
+                <option>②</option>
+                <option>③</option>
+                <option>④</option>
+                <option>⑤</option>
+              </select>
+            </label>
+          </div>
+          {fetchError ? <p className="redmine-fetch-error">{fetchError}</p> : null}
+          <div className="cast-grid">
+            {casts.map((cast, index) => (
+              <article className="cast-card" key={cast.id}>
+                <div className="cast-title">
+                  <strong>キャスト {index + 1}</strong>
+                  {casts.length > 1 && (
+                    <button
+                      onClick={() =>
+                        setCasts((current) =>
+                          current.filter((item) => item.id !== cast.id),
+                        )
+                      }
+                    >
+                      削除
+                    </button>
+                  )}
+                </div>
+                <label className="record-field">
+                  <span>キャストページURL</span>
+                  <div className="url-row">
+                    <input
+                      placeholder="Star-GuysのキャストURLを貼り付け"
+                      value={cast.url}
+                      onChange={(event) =>
+                        updateCast(cast.id, { url: event.target.value })
+                      }
+                    />
+                    <button type="button" className="secondary-button" disabled={fetchingId === cast.id || !cast.url.trim()} onClick={() => void fetchCast(cast)}>
+                      {fetchingId === cast.id ? "取得中…" : "URLから取得"}
+                    </button>
+                  </div>
+                </label>
+                <div className="two-column">
+                  <label className="record-field">
+                    <span>名前</span>
+                    <input
+                      value={cast.name}
+                      onChange={(event) =>
+                        updateCast(cast.id, { name: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="record-field">
+                    <span>読み仮名</span>
+                    <input
+                      value={cast.kana}
+                      onChange={(event) =>
+                        updateCast(cast.id, { kana: event.target.value })
+                      }
+                    />
+                  </label>
+                </div>
+                <RecordField
+                  label="修正内容"
+                  value={cast.revision}
+                  onChange={(value) => updateCast(cast.id, { revision: value })}
+                />
+              </article>
+            ))}
+          </div>
+          <RecordField
+            label="共通の備考"
+            value={form.sharedNotes}
+            onChange={(value) => setForm({ ...form, sharedNotes: value })}
+          />
+        </section>
+        <aside className="record-preview redmine-preview">
+          <div className="preview-heading">
+            <div>
+              <p className="eyebrow">TEXT TEMPLATE</p>
+              <h3>Redmine貼り付け用の完成文</h3>
+            </div>
+            <button className="primary-button" onClick={() => void copyText()}>
+              {copied ? "コピー済み ✓" : "Redmine文章をコピー"}
+            </button>
+          </div>
+          <pre>{text}</pre>
+        </aside>
+      </div>
+    </section>
+  );
 }
 
-function NewMeetingModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: { title: string; date: string; time: string; participants: string }) => Promise<void> }) {
-  const [form, setForm] = useState({ title: "", date: today(), time: "", participants: "" });
+function NewMeetingModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (input: {
+    title: string;
+    date: string;
+    time: string;
+    participants: string;
+  }) => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    title: "",
+    date: today(),
+    time: "",
+    participants: "",
+  });
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!form.title.trim() || !form.date || busy) return;
     setBusy(true);
-    await onSubmit({ ...form, title: form.title.trim(), participants: form.participants.trim() });
+    await onSubmit({
+      ...form,
+      title: form.title.trim(),
+      participants: form.participants.trim(),
+    });
     setBusy(false);
   }
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <form className="modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-heading"><div><p className="eyebrow">NEW MEETING</p><h2>新しい会議を作成</h2></div><button type="button" onClick={onClose}>×</button></div>
-        <label><span>会議名</span><input autoFocus required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
-        <div className="form-grid"><label><span>日付</span><input type="date" required value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></label><label><span>時間</span><input type="time" value={form.time} onChange={(event) => setForm({ ...form, time: event.target.value })} /></label></div>
-        <label><span>参加者</span><input placeholder="例：羽賀・佐藤・安田" value={form.participants} onChange={(event) => setForm({ ...form, participants: event.target.value })} /></label>
-        <button className="primary-button full" disabled={busy}>{busy ? "作成中…" : "会議を作成する"}</button>
+      <form
+        className="modal"
+        onSubmit={submit}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-heading">
+          <div>
+            <p className="eyebrow">NEW MEETING</p>
+            <h2>新しい会議を作成</h2>
+          </div>
+          <button type="button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <label>
+          <span>会議名</span>
+          <input
+            autoFocus
+            required
+            value={form.title}
+            onChange={(event) =>
+              setForm({ ...form, title: event.target.value })
+            }
+          />
+        </label>
+        <div className="form-grid">
+          <label>
+            <span>日付</span>
+            <input
+              type="date"
+              required
+              value={form.date}
+              onChange={(event) =>
+                setForm({ ...form, date: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            <span>時間</span>
+            <input
+              type="time"
+              value={form.time}
+              onChange={(event) =>
+                setForm({ ...form, time: event.target.value })
+              }
+            />
+          </label>
+        </div>
+        <label>
+          <span>参加者</span>
+          <input
+            placeholder="例：羽賀・佐藤・安田"
+            value={form.participants}
+            onChange={(event) =>
+              setForm({ ...form, participants: event.target.value })
+            }
+          />
+        </label>
+        <button className="primary-button full" disabled={busy}>
+          {busy ? "作成中…" : "会議を作成する"}
+        </button>
       </form>
     </div>
   );
