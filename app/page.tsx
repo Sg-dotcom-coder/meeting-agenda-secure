@@ -1189,7 +1189,10 @@ function RedmineWorkspace() {
     requestType: "ホスト特集",
     area: "",
     store: "",
-    template: "①〜⑤から自動選択",
+    sourceUrl: "",
+    title: "",
+    topTitle: "",
+    body: "",
     sharedNotes: "",
   });
   const [casts, setCasts] = useState<RedmineCast[]>([
@@ -1199,17 +1202,21 @@ function RedmineWorkspace() {
   const [fetchingId, setFetchingId] = useState("");
   const [fetchError, setFetchError] = useState("");
   const text = [
-    `h1. ${form.area || "エリア"} ${form.store || "店舗名"} ${form.requestType}`,
-    "",
-    ...casts.flatMap((cast, index) => [
-      `h2. キャスト${index + 1}：${cast.name || "名前未入力"}`,
-      `* キャストページ：${cast.url || "未入力"}`,
-      `* 読み仮名：${cast.kana || "未入力"}`,
-      "",
-      cast.revision || "修正内容を入力してください。",
-      "",
-    ]),
-    ...(form.sharedNotes ? ["h2. 共通の備考", form.sharedNotes] : []),
+    `### ${[form.area, form.store, form.requestType].filter(Boolean).join(" ") || "ホスト特集"}`,
+    ...(form.sourceUrl.trim() ? ["", form.sourceUrl.trim()] : []),
+    ...(form.title.trim() ? ["", "■タイトル", form.title.trim()] : []),
+    ...(form.topTitle.trim() ? ["", "■TOP表示用フリータイトル", form.topTitle.trim()] : []),
+    ...(form.body.trim() ? ["", "■本文", form.body.trim()] : []),
+    ...casts.flatMap((cast) => {
+      if (!cast.name.trim() && !cast.kana.trim() && !cast.url.trim() && !cast.revision.trim()) return [];
+      return [
+        "",
+        `・${[cast.name.trim(), cast.kana.trim()].filter(Boolean).join("　")}`,
+        ...(cast.revision.trim() ? [`→${cast.revision.trim()}`] : []),
+        ...(cast.url.trim() ? [cast.url.trim()] : []),
+      ];
+    }),
+    ...(form.sharedNotes.trim() ? ["", form.sharedNotes.trim()] : []),
   ].join("\n");
   async function copyText() {
     await navigator.clipboard.writeText(text);
@@ -1317,31 +1324,14 @@ function RedmineWorkspace() {
               ＋ キャスト追加
             </button>
           </div>
-          <div className="redmine-settings">
+          <div className="redmine-title-fields">
             <label className="record-field">
               <span>データ参照元URL</span>
-              <input placeholder="資料フォルダのURL" />
+              <input placeholder="Google Driveなどの資料フォルダURL" value={form.sourceUrl} onChange={(event) => setForm({ ...form, sourceUrl: event.target.value })} />
             </label>
-            <label className="record-field">
-              <span>タイトル種類</span>
-              <input value="イケメン" readOnly />
-            </label>
-            <label className="record-field">
-              <span>本文テンプレート</span>
-              <select
-                value={form.template}
-                onChange={(event) =>
-                  setForm({ ...form, template: event.target.value })
-                }
-              >
-                <option>①〜⑤から自動選択</option>
-                <option>①</option>
-                <option>②</option>
-                <option>③</option>
-                <option>④</option>
-                <option>⑤</option>
-              </select>
-            </label>
+            <RecordField label="タイトル" value={form.title} onChange={(value) => setForm({ ...form, title: value })} />
+            <RecordField label="TOP表示用フリータイトル" value={form.topTitle} onChange={(value) => setForm({ ...form, topTitle: value })} />
+            <RecordField label="本文" value={form.body} onChange={(value) => setForm({ ...form, body: value })} />
           </div>
           {fetchError ? <p className="redmine-fetch-error">{fetchError}</p> : null}
           <div className="cast-grid">
