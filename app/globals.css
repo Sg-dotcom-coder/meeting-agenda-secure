@@ -106,6 +106,7 @@ button{cursor:pointer}
 .modal-heading>button{width:32px;height:32px;border:0;border-radius:50%;background:#eef1f5;color:#687183;font-size:20px}
 .modal label{display:flex;flex-direction:column;gap:7px;margin-top:16px}
 .modal input{min-height:42px;resize:none}
+.task-create-modal{width:min(620px,100%);max-height:calc(100vh - 40px);overflow:auto}.task-create-modal select,.task-create-modal textarea{width:100%;border:1px solid #dce1e8;border-radius:9px;background:#fafbfc;color:var(--ink);outline:0}.task-create-modal select{min-height:42px;padding:0 11px}.task-create-modal textarea{min-height:84px;padding:11px 12px;resize:vertical}.task-create-modal select:focus,.task-create-modal textarea:focus{border-color:#7d8fe6;box-shadow:0 0 0 3px #536cda12}.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:900px){.topbar{position:static;align-items:flex-start;padding:14px 16px}
 .brand-block{display:block;flex:1}
