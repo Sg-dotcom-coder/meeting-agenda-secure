@@ -1201,6 +1201,7 @@ function RedmineWorkspace() {
   const [copied, setCopied] = useState(false);
   const [fetchingId, setFetchingId] = useState("");
   const [fetchError, setFetchError] = useState("");
+  const [copyPattern, setCopyPattern] = useState("美形");
   const text = [
     `### ${[form.area, form.store, form.requestType].filter(Boolean).join(" ") || "ホスト特集"}`,
     ...(form.sourceUrl.trim() ? ["", form.sourceUrl.trim()] : []),
@@ -1246,6 +1247,32 @@ function RedmineWorkspace() {
     } finally {
       setFetchingId("");
     }
+  }
+  function generateRedmineCopy() {
+    const names = casts.map((cast) => cast.name.trim()).filter(Boolean);
+    if (!form.store.trim() || names.length === 0) {
+      setFetchError("店名と、1名以上のキャスト情報を入力してください。");
+      return;
+    }
+    setFetchError("");
+    const countLabel = names.length === 1 ? `${copyPattern}キャスト` : names.length === 2 ? `${copyPattern}コンビ` : `${copyPattern}${names.length}人組`;
+    const descriptions: Record<string, string> = {
+      美形: "クール＆スタイリッシュな彼らをしかと見届けよ!!",
+      クール: "洗練されたクールな魅力を放つ彼らから目が離せない!!",
+      華やか: "華やかなオーラをまとった彼らの魅力を存分にご覧あれ!!",
+      色気: "大人の色気をまとった彼らの表情を見逃すな!!",
+      王道: "圧倒的な存在感を放つ彼らのグラビアをお見逃しなく!!",
+      個性派: "それぞれ異なる魅力を放つ彼らの世界観を堪能せよ!!",
+    };
+    const area = form.area.trim();
+    const store = form.store.trim();
+    const prefix = area ? `${area}『${store}』` : `『${store}』`;
+    setForm((current) => ({
+      ...current,
+      title: `『${store}』の${countLabel}がグラビアに登場!!`,
+      topTitle: `${prefix}の${countLabel}がグラビアに登場♪`,
+      body: `${prefix}から選抜されし${names.length}人${names.map((name) => `『${name}』`).join("")}!${descriptions[copyPattern]}`,
+    }));
   }
   return (
     <section className="record-workspace redmine-workspace">
@@ -1298,7 +1325,14 @@ function RedmineWorkspace() {
                 }
               />
             </label>
+            <label className="record-field">
+              <span>文章パターン</span>
+              <select value={copyPattern} onChange={(event) => setCopyPattern(event.target.value)}>
+                <option>美形</option><option>クール</option><option>華やか</option><option>色気</option><option>王道</option><option>個性派</option>
+              </select>
+            </label>
           </div>
+          <div className="redmine-generator"><p>キャストURLを取得後、パターンを選ぶだけでタイトル・TOP表示・本文をまとめて作成します。</p><button type="button" className="primary-button" onClick={generateRedmineCopy}>タイトル・本文を自動生成</button></div>
         </section>
         <section className="record-card">
           <div className="record-card-heading">
