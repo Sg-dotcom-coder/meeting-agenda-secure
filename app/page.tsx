@@ -54,6 +54,8 @@ type WorkTask = {
   updated_at: string;
 };
 
+type NewWorkTask = Pick<WorkTask, "title" | "category" | "assignee" | "status" | "priority" | "due_date" | "shooting_date" | "related_url" | "notes">;
+
 type WorkRecordKind = "schedule" | "report";
 
 type WorkRecord = {
@@ -573,16 +575,21 @@ export default function Home() {
     }
   }
 
-  async function createWorkTask() {
+  async function createWorkTask(input: NewWorkTask) {
     setSaveState("saving");
     const { data, error } = await supabase.from("work_tasks").insert({
-      title: "新しいタスク", category: "その他", assignee: "", status: "未着手", priority: "中",
-      due_date: null, shooting_date: null, related_url: "", notes: "", source_label: "手動作成",
+      ...input,
+      title: input.title.trim(),
+      category: input.category.trim() || "その他",
+      related_url: input.related_url.trim(),
+      notes: input.notes.trim(),
+      source_label: "手動作成",
       sort_order: tasks.length ? Math.max(...tasks.map((task) => task.sort_order || 0)) + 1 : 1,
     }).select("*").single();
-    if (error || !data) { setSaveState("error"); setMessage("タスクを作成できませんでした。"); return; }
+    if (error || !data) { setSaveState("error"); setMessage("タスクを作成できませんでした。"); return false; }
     setTasks((current) => [data as WorkTask, ...current]);
     setSaveState("saved");
+    return true;
   }
 
   async function deleteWorkTask(id: number) {
@@ -867,7 +874,7 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
   tasks: WorkTask[];
   loading: boolean;
   onUpdate: (id: number, patch: Partial<WorkTask>) => Promise<void>;
-  onCreate: () => Promise<void>;
+  onCreate: (input: NewWorkTask) => Promise<boolean>;
   onDelete: (id: number) => Promise<void>;
   onAddGoogle: (task: WorkTask) => Promise<boolean>;
   isGoogleConnected: boolean;
@@ -879,6 +886,7 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
   const [priority, setPriority] = useState("すべて");
   const [folder, setFolder] = useState<TaskFolder>("すべて");
   const [sort, setSort] = useState("期限が近い順");
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
   const visible = useMemo(() => tasks.filter((task) =>
     task.status !== "完了" &&
     (person === "全員" || task.assignee === person) &&
@@ -900,7 +908,7 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
     <section className="task-workspace">
       <div className="task-heading">
         <div><p className="eyebrow">TASK MANAGEMENT</p><h2>タスク管理</h2><p>会議のToDoを含む、すべての業務タスクを管理します。</p></div>
-        <div className="task-heading-actions">{!isGoogleConnected ? <button className="secondary-button" onClick={() => void onConnectGoogle()}>G Google Tasksを接続</button> : null}<button className="primary-button" onClick={() => void onCreate()}>＋ 新しいタスク</button></div>
+        <div className="task-heading-actions">{!isGoogleConnected ? <button className="secondary-button" onClick={() => void onConnectGoogle()}>G Google Tasksを接続</button> : null}<button className="primary-button" onClick={() => setNewTaskOpen(true)}>＋ 新しいタスク</button></div>
       </div>
       <div className="person-tabs">{["全員", ...people].map((item) => <button key={item} className={person === item ? "active" : ""} onClick={() => setPerson(item)}>{item}</button>)}</div>
       <div className="task-stats"><span><strong>{counts.open}</strong>未完了</span><span><strong>{counts.working}</strong>作業中</span><span><strong>{counts.checking}</strong>確認中</span><span className="overdue"><strong>{counts.overdue}</strong>期限超過</span></div>
@@ -924,7 +932,50 @@ function TaskWorkspace({ tasks, loading, onUpdate, onCreate, onDelete, onAddGoog
           <ManagedTaskCard key={task.id} task={task} onUpdate={onUpdate} onDelete={onDelete} onAddGoogle={onAddGoogle} isGoogleConnected={isGoogleConnected} />
         ))}
       </div>
+      {newTaskOpen ? <NewTaskModal onClose={() => setNewTaskOpen(false)} onSubmit={async (input) => {
+        const created = await onCreate(input);
+        if (created) setNewTaskOpen(false);
+        return created;
+      }} /> : null}
     </section>
+  );
+}
+
+function NewTaskModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (input: NewWorkTask) => Promise<boolean> }) {
+  const [folder, setFolder] = useState<Exclude<TaskFolder, "すべて">>("マークなし");
+  const [form, setForm] = useState<NewWorkTask>({
+    title: "", category: "その他", assignee: "", status: "未着手", priority: "中",
+    due_date: null, shooting_date: null, related_url: "", notes: "",
+  });
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!form.title.trim() || busy) return;
+    setBusy(true);
+    const created = await onSubmit({ ...form, title: changeTaskFolder(form.title, folder) });
+    if (!created) setBusy(false);
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={() => !busy && onClose()}>
+      <form className="modal task-create-modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-heading"><div><p className="eyebrow">NEW TASK</p><h2>新しいタスクを追加</h2><p>内容を入力してからタスクを追加します。</p></div><button type="button" onClick={onClose} disabled={busy}>×</button></div>
+        <label><span>タスク名（必須）</span><input autoFocus required placeholder="タスク内容を入力" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+        <div className="form-grid">
+          <label><span>フォルダ</span><select value={folder} onChange={(event) => setFolder(event.target.value as Exclude<TaskFolder, "すべて">)}><option value="マークなし">マークなし</option><option value="🔴">🔴</option><option value="🟠">🟠</option></select></label>
+          <label><span>種類</span><input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} /></label>
+          <label><span>担当者</span><select value={form.assignee} onChange={(event) => setForm({ ...form, assignee: event.target.value })}><option value="">未定</option>{people.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span>状態</span><select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as WorkTask["status"] })}><option>未着手</option><option>作業中</option><option>確認中</option></select></label>
+          <label><span>優先度</span><select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value as WorkTask["priority"] })}><option>高</option><option>中</option><option>低</option></select></label>
+          <label><span>期限</span><input type="date" value={form.due_date ?? ""} onChange={(event) => setForm({ ...form, due_date: event.target.value || null })} /></label>
+          <label><span>撮影日</span><input type="date" value={form.shooting_date ?? ""} onChange={(event) => setForm({ ...form, shooting_date: event.target.value || null })} /></label>
+        </div>
+        <label><span>関連URL</span><input placeholder="素材・店舗ページなどのURL" value={form.related_url} onChange={(event) => setForm({ ...form, related_url: event.target.value })} /></label>
+        <label><span>メモ</span><textarea placeholder="進行状況・修正内容・確認事項など" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={busy}>キャンセル</button><button className="primary-button" disabled={busy || !form.title.trim()}>{busy ? "追加中…" : "タスクを追加する"}</button></div>
+      </form>
+    </div>
   );
 }
 
