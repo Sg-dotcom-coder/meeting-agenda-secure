@@ -1133,7 +1133,7 @@ function WorkRecordWorkspace({ kind, records, loading, onSave, onDelete }: {
 }
 
 function TimeEntryRow({ entry, onChange, onRemove }: { entry: TimeEntry; onChange: (patch: Partial<TimeEntry>) => void; onRemove: () => void }) {
-  return <div className="time-entry"><input aria-label="開始時刻" type="time" value={entry.start} onChange={(event) => onChange({ start: event.target.value })} /><span>–</span><input aria-label="終了時刻" type="time" value={entry.end} onChange={(event) => onChange({ end: event.target.value })} /><input aria-label="分類" placeholder="分類" value={entry.category} onChange={(event) => onChange({ category: event.target.value })} /><input aria-label="業務内容" placeholder="業務内容" value={entry.detail} onChange={(event) => onChange({ detail: event.target.value })} /><button aria-label="行を削除" onClick={onRemove}>×</button></div>;
+  return <div className="time-entry"><input aria-label="開始時刻" type="time" value={entry.start} onChange={(event) => onChange({ start: event.target.value })} /><span>–</span><input aria-label="終了時刻" type="time" value={entry.end} onChange={(event) => onChange({ end: event.target.value })} /><input aria-label="分類" placeholder="分類" value={entry.category} onChange={(event) => onChange({ category: event.target.value })} /><textarea aria-label="業務内容" placeholder="業務内容（改行できます）" value={entry.detail} onChange={(event) => onChange({ detail: event.target.value })} /><button aria-label="行を削除" onClick={onRemove}>×</button></div>;
 }
 
 function RecordField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
