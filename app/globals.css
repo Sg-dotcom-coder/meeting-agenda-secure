@@ -160,13 +160,13 @@ button{cursor:pointer}
 .record-empty{margin:10px 0;color:#8b93a1;font-size:10px}
 .time-entry{display:grid;grid-template-columns:100px 12px 100px 120px minmax(170px,1fr) 34px;gap:7px;align-items:center}
 .time-entry>span{text-align:center;color:#8992a1}
-.time-entry input,.time-entry button{height:38px;min-width:0;border:1px solid #dce1e8;border-radius:8px;background:#fafbfc;color:var(--ink);padding:0 9px;font-size:10px}
+.time-entry input,.time-entry textarea,.time-entry button{height:38px;min-width:0;border:1px solid #dce1e8;border-radius:8px;background:#fafbfc;color:var(--ink);padding:0 9px;font-size:10px}.time-entry textarea{min-height:58px;padding:9px;resize:vertical;line-height:1.5}
 .time-entry button{border:0;background:#f5e9ec;color:#a24e5b;font-size:15px}
 .record-fields{display:flex;flex-direction:column;gap:15px}
 .record-field{display:flex;flex-direction:column;gap:7px}
 .record-field>span{color:#667184;font-size:9px;font-weight:850}
 .record-field textarea{min-height:88px;padding:11px 12px;border:1px solid #dce1e8;border-radius:9px;background:#fafbfc;color:var(--ink);outline:0;resize:vertical;font-size:11px;line-height:1.6}
-.record-field input:focus,.record-field textarea:focus,.record-context input:focus,.record-context select:focus,.time-entry input:focus{border-color:#7d8fe6;box-shadow:0 0 0 3px #536cda12}
+.record-field input:focus,.record-field textarea:focus,.record-context input:focus,.record-context select:focus,.time-entry input:focus,.time-entry textarea:focus{border-color:#7d8fe6;box-shadow:0 0 0 3px #536cda12}
 .two-column{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .record-preview{position:sticky;top:116px;overflow:hidden}
 .preview-heading{padding:18px;border-bottom:1px solid var(--line)}
@@ -179,8 +179,8 @@ button{cursor:pointer}
 @media(max-width:560px){.redmine-title-fields{grid-template-columns:1fr}.redmine-title-fields>label:first-child,.redmine-title-fields>label:last-child{grid-column:auto}}
 @media(max-width:560px){.redmine-generator{display:block}.redmine-generator button{width:100%;margin-top:10px}}
 @media(max-width:1050px){.record-layout{grid-template-columns:190px minmax(0,1fr)}.record-grid{grid-template-columns:1fr}.record-preview{position:static}.time-entry{grid-template-columns:90px 12px 90px 110px minmax(150px,1fr) 34px}.report-next{grid-template-columns:1fr 1fr}.report-next>.record-field:last-child{grid-column:1/-1}}
-@media(max-width:900px){.record-layout{display:block}.record-history{display:flex;gap:8px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:0 0 14px;margin-bottom:22px}.record-history .section-heading{display:none}.history-new,.history-item{min-width:150px;margin:0}.record-heading{display:block}.record-context{margin-top:16px}.time-entry{grid-template-columns:1fr 12px 1fr 1fr 34px}.time-entry input[aria-label="業務内容"]{grid-column:1/-2}.cast-grid{grid-template-columns:1fr}}
-@media(max-width:560px){.two-column,.report-fields,.report-next,.redmine-basic,.redmine-settings{grid-template-columns:1fr}.report-next>.record-field:last-child{grid-column:auto}.two-column{grid-template-columns:1fr}.record-workspace{padding:25px 14px 60px}.record-context{display:grid;grid-template-columns:1fr}.time-entry{grid-template-columns:1fr 12px 1fr 34px}.time-entry input[aria-label="分類"],.time-entry input[aria-label="業務内容"]{grid-column:1/-1}.time-entry button{grid-column:4;grid-row:1}.preview-heading{align-items:flex-start}.managed-fields .wide-field{grid-column:auto}.task-stats{grid-template-columns:1fr 1fr}}
+@media(max-width:900px){.record-layout{display:block}.record-history{display:flex;gap:8px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:0 0 14px;margin-bottom:22px}.record-history .section-heading{display:none}.history-new,.history-item{min-width:150px;margin:0}.record-heading{display:block}.record-context{margin-top:16px}.time-entry{grid-template-columns:1fr 12px 1fr 1fr 34px}.time-entry textarea[aria-label="業務内容"]{grid-column:1/-2}.cast-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.two-column,.report-fields,.report-next,.redmine-basic,.redmine-settings{grid-template-columns:1fr}.report-next>.record-field:last-child{grid-column:auto}.two-column{grid-template-columns:1fr}.record-workspace{padding:25px 14px 60px}.record-context{display:grid;grid-template-columns:1fr}.time-entry{grid-template-columns:1fr 12px 1fr 34px}.time-entry input[aria-label="分類"],.time-entry textarea[aria-label="業務内容"]{grid-column:1/-1}.time-entry button{grid-column:4;grid-row:1}.preview-heading{align-items:flex-start}.managed-fields .wide-field{grid-column:auto}.task-stats{grid-template-columns:1fr 1fr}}
 
 .meeting-ai{margin-top:22px;border:1px solid #d9def0;border-radius:16px;background:#fff;overflow:hidden;box-shadow:0 8px 28px #26365f0b}
 .meeting-ai-toggle{width:100%;display:flex;align-items:center;gap:12px;padding:18px 20px;border:0;background:linear-gradient(135deg,#f5f6ff,#fff);color:var(--ink);text-align:left}
