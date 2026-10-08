@@ -1184,50 +1184,158 @@ function buildReportText(person: string, workDate: string, payload: ReportPayloa
 }
 
 type RedmineCast = { id: string; url: string; name: string; kana: string; revision: string };
+type RedmineType = "ホスト特集" | "トップグラビア" | "宣材" | "店内撮影";
+const REDMINE_TYPES: RedmineType[] = ["ホスト特集", "トップグラビア", "宣材", "店内撮影"];
+const REDMINE_TEMPLATE_KEY = "redmine-host-template";
+const DEFAULT_RETOUCH = [
+  "明瞭度上げてください。（シャドウが落ちるので注意）",
+  "彩度上げてください。（JPGより彩度落ちているように見えないように）",
+  "黒レベルやシャドウを上げて、JPGよりシャドウ部上げてください。",
+  "レンズプロファイルの色収差除去とプロファイル補正を使用にチェックを入れる。",
+  "傾き調整（多少のトリミングはOK。オートで微妙だったり切れすぎたりしたら元のままで。）",
+  "明るさちょい上げてください。（照明等がとばないように）",
+  "余計な映り込みあったら削除してください。",
+  "※ノイズは目立つようでしたらAIノイズ除去使用。",
+].join("\n");
+
+const newRedmineCast = (): RedmineCast => ({ id: crypto.randomUUID(), url: "", name: "", kana: "", revision: "" });
+const castHead = (cast: RedmineCast) => [cast.name.trim(), cast.kana.trim()].filter(Boolean).join("　");
+const castHasContent = (cast: RedmineCast) => Boolean(cast.name.trim() || cast.kana.trim() || cast.url.trim() || cast.revision.trim());
+
+// ホスト特集の本文テンプレ①〜⑤。{loc}=地域『店名』 {names}=『名前』…
+const HOST_BODY_TEMPLATES: Array<(loc: string, names: string, group: string, count: string) => string> = [
+  (loc, names, _group, count) => `${loc}のイチ押しキャスト${names}の${count}が華やかに登場!!`,
+  (loc, names, group) => `${loc}のイケメン${group}${names}がグラビアに堂々登場!`,
+  (loc, names, _group, count) => `${loc}が自信を持ってお送りする${count}${names}の魅力をたっぷりお届けします!`,
+  (loc, names, _group, count) => `${loc}から選抜されし${count}${names}!クール＆スタイリッシュな彼らをしかと見届けよ!!`,
+  (loc, names, group) => `${loc}からの刺客${group}${names}!彼らの魅力を余すところなくお届けします!`,
+];
+
+function pickHostTemplate(exclude: number) {
+  const candidates = HOST_BODY_TEMPLATES.map((_, index) => index).filter((index) => index !== exclude);
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
 function RedmineWorkspace() {
   const [form, setForm] = useState({
-    requestType: "ホスト特集",
+    requestType: "ホスト特集" as RedmineType,
     area: "",
     store: "",
-    sourceUrl: "",
-    title: "",
-    topTitle: "",
-    body: "",
-    sharedNotes: "",
+    dataUrl: "",
+    shootKind: "撮影" as "撮影" | "修正",
+    people: "",
+    cuts: "",
+    photos: "",
+    retouch: DEFAULT_RETOUCH,
   });
-  const [casts, setCasts] = useState<RedmineCast[]>([
-    { id: crypto.randomUUID(), url: "", name: "", kana: "", revision: "" },
-  ]);
-  const [copied, setCopied] = useState(false);
+  const [casts, setCasts] = useState<RedmineCast[]>([newRedmineCast()]);
+  const [overrides, setOverrides] = useState<{ title?: string; topTitle?: string; body?: string }>({});
+  const [templateIndex, setTemplateIndex] = useState(0);
+  const [copied, setCopied] = useState("");
   const [fetchingId, setFetchingId] = useState("");
   const [fetchError, setFetchError] = useState("");
-  const [copyPattern, setCopyPattern] = useState("美形");
-  const text = [
-    `### ${[form.area, form.store, form.requestType].filter(Boolean).join(" ") || "ホスト特集"}`,
-    ...(form.sourceUrl.trim() ? ["", form.sourceUrl.trim()] : []),
-    ...(form.title.trim() ? ["", "■タイトル", form.title.trim()] : []),
-    ...(form.topTitle.trim() ? ["", "■TOP表示用フリータイトル", form.topTitle.trim()] : []),
-    ...(form.body.trim() ? ["", "■本文", form.body.trim()] : []),
-    ...casts.flatMap((cast) => {
-      if (!cast.name.trim() && !cast.kana.trim() && !cast.url.trim() && !cast.revision.trim()) return [];
-      return [
-        "",
-        `・${[cast.name.trim(), cast.kana.trim()].filter(Boolean).join("　")}`,
-        ...(cast.revision.trim() ? [`→${cast.revision.trim()}`] : []),
-        ...(cast.url.trim() ? [cast.url.trim()] : []),
-      ];
-    }),
-    ...(form.sharedNotes.trim() ? ["", form.sharedNotes.trim()] : []),
-  ].join("\n");
-  async function copyText() {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+
+  // 本文テンプレは直前に使ったものと被らないよう、開いた時に選び直す。
+  useEffect(() => {
+    let last = -1;
+    try { last = Number(window.localStorage.getItem(REDMINE_TEMPLATE_KEY) ?? "-1"); } catch { /* 保存できなくても動作する */ }
+    const next = pickHostTemplate(last);
+    setTemplateIndex(next);
+    try { window.localStorage.setItem(REDMINE_TEMPLATE_KEY, String(next)); } catch { /* noop */ }
+  }, []);
+
+  function rerollTemplate() {
+    const next = pickHostTemplate(templateIndex);
+    setTemplateIndex(next);
+    setOverrides((current) => ({ ...current, body: undefined }));
+    try { window.localStorage.setItem(REDMINE_TEMPLATE_KEY, String(next)); } catch { /* noop */ }
+  }
+
+  const type = form.requestType;
+  const area = form.area.trim();
+  const store = form.store.trim();
+  const location = [area, store].filter(Boolean).join(" ");
+  const filledCasts = casts.filter(castHasContent);
+  const names = casts.map((cast) => cast.name.trim()).filter(Boolean);
+  const dataUrl = form.dataUrl.trim();
+
+  // ホスト特集の自動生成文
+  const count = names.length;
+  const group = count >= 2 ? `${count}人組` : count === 1 ? "1人" : "○人組";
+  const countLabel = `${count || "○"}人`;
+  const prefix = area ? `${area}『${store || "店名"}』` : `『${store || "店名"}』`;
+  const generatedTitle = `『${store || "店名"}』のイケメン${count >= 2 ? group : ""}がグラビアに登場!!`;
+  const generatedTopTitle = `${prefix}のイケメン${count >= 2 ? group : ""}がグラビアに登場♪`;
+  const generatedBody = HOST_BODY_TEMPLATES[templateIndex](prefix, names.map((name) => `『${name}』`).join("") || "『名前』", group, countLabel);
+  const hostTitle = overrides.title ?? generatedTitle;
+  const hostTopTitle = overrides.topTitle ?? generatedTopTitle;
+  const hostBody = overrides.body ?? generatedBody;
+
+  const { subject, body } = useMemo(() => {
+    if (type === "ホスト特集") {
+      return {
+        subject: `${location} ホスト特集`.trim(),
+        body: [
+          ...(dataUrl ? [dataUrl] : []),
+          "■タイトル", hostTitle,
+          "■TOP表示用フリータイトル", hostTopTitle,
+          "■本文", hostBody,
+          ...filledCasts.flatMap((cast) => [
+            `・${castHead(cast)}`,
+            ...(cast.revision.trim() ? [`→${cast.revision.trim()}`] : []),
+            ...(cast.url.trim() ? [cast.url.trim()] : []),
+          ]),
+        ].join("\n"),
+      };
+    }
+    if (type === "トップグラビア") {
+      const cast = casts[0];
+      return {
+        subject: [location, cast.name.trim(), "トップグラビア"].filter(Boolean).join(" "),
+        body: [
+          `『${castHead(cast)}』`,
+          ...(cast.url.trim() ? [cast.url.trim()] : []),
+          "■修正点",
+          `→${cast.revision.trim()}`,
+          "以下データになります。",
+          ...(dataUrl ? [dataUrl] : []),
+        ].join("\n"),
+      };
+    }
+    if (type === "宣材") {
+      const peopleCount = form.people.trim() || (form.shootKind === "修正" && filledCasts.length ? String(filledCasts.length) : "");
+      const kind = form.shootKind === "修正" ? "宣材修正" : "宣材";
+      const subjectLine = `${location} ${kind}${peopleCount ? `${peopleCount}名` : ""}${form.cuts.trim() ? `${form.cuts.trim()}カット` : ""}`.trim();
+      if (form.shootKind === "撮影") {
+        return { subject: subjectLine, body: dataUrl };
+      }
+      const hasNoComment = filledCasts.some((cast) => !cast.revision.trim());
+      return {
+        subject: subjectLine,
+        body: [
+          ...(dataUrl ? [dataUrl] : []),
+          ...(hasNoComment ? ["コメント無しの方は宣材合わせ", ""] : []),
+          ...filledCasts.flatMap((cast) => [
+            castHead(cast),
+            ...(cast.revision.trim() ? [cast.revision.trim()] : []),
+            ...(cast.url.trim() ? [cast.url.trim()] : []),
+          ]),
+        ].join("\n"),
+      };
+    }
+    return {
+      subject: `${location} 店内写真レタッチ${form.photos.trim() ? ` ${form.photos.trim()}枚` : ""}`.trim(),
+      body: ["■データフォルダ", ...(dataUrl ? [dataUrl] : []), "■レタッチ内容", form.retouch.trim()].join("\n"),
+    };
+  }, [type, location, dataUrl, hostTitle, hostTopTitle, hostBody, filledCasts, casts, form.people, form.cuts, form.photos, form.retouch, form.shootKind]);
+
+  async function copy(kind: "subject" | "body", value: string) {
+    await navigator.clipboard.writeText(value);
+    setCopied(kind);
+    setTimeout(() => setCopied(""), 1600);
   }
   const updateCast = (id: string, patch: Partial<RedmineCast>) =>
-    setCasts((current) =>
-      current.map((cast) => (cast.id === id ? { ...cast, ...patch } : cast)),
-    );
+    setCasts((current) => current.map((cast) => (cast.id === id ? { ...cast, ...patch } : cast)));
   async function fetchCast(cast: RedmineCast) {
     if (!cast.url.trim() || fetchingId) return;
     setFetchingId(cast.id);
@@ -1248,39 +1356,20 @@ function RedmineWorkspace() {
       setFetchingId("");
     }
   }
-  function generateRedmineCopy() {
-    const names = casts.map((cast) => cast.name.trim()).filter(Boolean);
-    if (!form.store.trim() || names.length === 0) {
-      setFetchError("店名と、1名以上のキャスト情報を入力してください。");
-      return;
-    }
-    setFetchError("");
-    const countLabel = names.length === 1 ? `${copyPattern}キャスト` : names.length === 2 ? `${copyPattern}コンビ` : `${copyPattern}${names.length}人組`;
-    const descriptions: Record<string, string> = {
-      美形: "クール＆スタイリッシュな彼らをしかと見届けよ!!",
-      クール: "洗練されたクールな魅力を放つ彼らから目が離せない!!",
-      華やか: "華やかなオーラをまとった彼らの魅力を存分にご覧あれ!!",
-      色気: "大人の色気をまとった彼らの表情を見逃すな!!",
-      王道: "圧倒的な存在感を放つ彼らのグラビアをお見逃しなく!!",
-      個性派: "それぞれ異なる魅力を放つ彼らの世界観を堪能せよ!!",
-    };
-    const area = form.area.trim();
-    const store = form.store.trim();
-    const prefix = area ? `${area}『${store}』` : `『${store}』`;
-    setForm((current) => ({
-      ...current,
-      title: `『${store}』の${countLabel}がグラビアに登場!!`,
-      topTitle: `${prefix}の${countLabel}がグラビアに登場♪`,
-      body: `${prefix}から選抜されし${names.length}人${names.map((name) => `『${name}』`).join("")}!${descriptions[copyPattern]}`,
-    }));
-  }
+
+  const showCasts = type === "ホスト特集" || type === "トップグラビア" || (type === "宣材" && form.shootKind === "修正");
+  const multiCast = type !== "トップグラビア";
+  const visibleCasts = multiCast ? casts : casts.slice(0, 1);
+  const castSectionTitle = type === "宣材" ? "修正するキャスト" : type === "トップグラビア" ? "キャスト" : "掲載キャスト";
+  const dataLabel = type === "店内撮影" ? "データフォルダURL" : "データ格納場所URL";
+
   return (
     <section className="record-workspace redmine-workspace">
       <div className="record-heading">
         <div>
           <p className="eyebrow">REDMINE TEXT MAKER</p>
           <h2>Redmine文章作成</h2>
-          <p>以前のテンプレートと同じ形式で、貼り付け用の文章を作成します。</p>
+          <p>依頼の種類を選んで入力すると、Redmineの「題名」と「本文」を作成します。</p>
         </div>
       </div>
       <div className="redmine-stack">
@@ -1294,157 +1383,160 @@ function RedmineWorkspace() {
           <div className="redmine-basic">
             <label className="record-field">
               <span>依頼種別</span>
-              <select
-                value={form.requestType}
-                onChange={(event) =>
-                  setForm({ ...form, requestType: event.target.value })
-                }
-              >
-                <option>ホスト特集</option>
-                <option>店舗情報修正</option>
-                <option>キャスト情報修正</option>
+              <select value={type} onChange={(event) => setForm({ ...form, requestType: event.target.value as RedmineType })}>
+                {REDMINE_TYPES.map((item) => <option key={item}>{item}</option>)}
               </select>
             </label>
             <label className="record-field">
               <span>地域</span>
-              <input
-                placeholder="例：大阪ミナミ"
-                value={form.area}
-                onChange={(event) =>
-                  setForm({ ...form, area: event.target.value })
-                }
-              />
+              <input placeholder="例：広島" value={form.area} onChange={(event) => setForm({ ...form, area: event.target.value })} />
             </label>
             <label className="record-field">
-              <span>店舗</span>
-              <input
-                placeholder="店舗名"
-                value={form.store}
-                onChange={(event) =>
-                  setForm({ ...form, store: event.target.value })
-                }
-              />
+              <span>店名</span>
+              <input placeholder="例：ICE" value={form.store} onChange={(event) => setForm({ ...form, store: event.target.value })} />
             </label>
-            <label className="record-field">
-              <span>文章パターン</span>
-              <select value={copyPattern} onChange={(event) => setCopyPattern(event.target.value)}>
-                <option>美形</option><option>クール</option><option>華やか</option><option>色気</option><option>王道</option><option>個性派</option>
-              </select>
-            </label>
-          </div>
-          <div className="redmine-generator"><p>キャストURLを取得後、パターンを選ぶだけでタイトル・TOP表示・本文をまとめて作成します。</p><button type="button" className="primary-button" onClick={generateRedmineCopy}>タイトル・本文を自動生成</button></div>
-        </section>
-        <section className="record-card">
-          <div className="record-card-heading">
-            <div>
-              <span>02</span>
-              <h3>ホスト特集</h3>
-            </div>
-            <button
-              className="primary-button"
-              onClick={() =>
-                setCasts((current) => [
-                  ...current,
-                  {
-                    id: crypto.randomUUID(),
-                    url: "",
-                    name: "",
-                    kana: "",
-                    revision: "",
-                  },
-                ])
-              }
-            >
-              ＋ キャスト追加
-            </button>
+            {type === "宣材" && (
+              <>
+                <label className="record-field">
+                  <span>内容</span>
+                  <select value={form.shootKind} onChange={(event) => setForm({ ...form, shootKind: event.target.value as "撮影" | "修正" })}>
+                    <option>撮影</option>
+                    <option>修正</option>
+                  </select>
+                </label>
+                <label className="record-field">
+                  <span>人数{form.shootKind === "修正" ? "（空欄なら入力したキャスト数）" : ""}</span>
+                  <input inputMode="numeric" placeholder="例：6" value={form.people} onChange={(event) => setForm({ ...form, people: event.target.value })} />
+                </label>
+                <label className="record-field">
+                  <span>カット数</span>
+                  <input inputMode="numeric" placeholder="例：7" value={form.cuts} onChange={(event) => setForm({ ...form, cuts: event.target.value })} />
+                </label>
+              </>
+            )}
+            {type === "店内撮影" && (
+              <label className="record-field">
+                <span>枚数</span>
+                <input inputMode="numeric" placeholder="例：6" value={form.photos} onChange={(event) => setForm({ ...form, photos: event.target.value })} />
+              </label>
+            )}
           </div>
           <div className="redmine-title-fields">
             <label className="record-field">
-              <span>データ参照元URL</span>
-              <input placeholder="Google Driveなどの資料フォルダURL" value={form.sourceUrl} onChange={(event) => setForm({ ...form, sourceUrl: event.target.value })} />
+              <span>{dataLabel}</span>
+              <input placeholder="Google DriveなどのフォルダURL" value={form.dataUrl} onChange={(event) => setForm({ ...form, dataUrl: event.target.value })} />
             </label>
-            <RecordField label="タイトル" value={form.title} onChange={(value) => setForm({ ...form, title: value })} />
-            <RecordField label="TOP表示用フリータイトル" value={form.topTitle} onChange={(value) => setForm({ ...form, topTitle: value })} />
-            <RecordField label="本文" value={form.body} onChange={(value) => setForm({ ...form, body: value })} />
           </div>
-          {fetchError ? <p className="redmine-fetch-error">{fetchError}</p> : null}
-          <div className="cast-grid">
-            {casts.map((cast, index) => (
-              <article className="cast-card" key={cast.id}>
-                <div className="cast-title">
-                  <strong>キャスト {index + 1}</strong>
-                  {casts.length > 1 && (
-                    <button
-                      onClick={() =>
-                        setCasts((current) =>
-                          current.filter((item) => item.id !== cast.id),
-                        )
-                      }
-                    >
-                      削除
-                    </button>
-                  )}
-                </div>
-                <label className="record-field">
-                  <span>キャストページURL</span>
-                  <div className="url-row">
-                    <input
-                      placeholder="Star-GuysのキャストURLを貼り付け"
-                      value={cast.url}
-                      onChange={(event) =>
-                        updateCast(cast.id, { url: event.target.value })
-                      }
-                    />
-                    <button type="button" className="secondary-button" disabled={fetchingId === cast.id || !cast.url.trim()} onClick={() => void fetchCast(cast)}>
-                      {fetchingId === cast.id ? "取得中…" : "URLから取得"}
-                    </button>
-                  </div>
-                </label>
-                <div className="two-column">
-                  <label className="record-field">
-                    <span>名前</span>
-                    <input
-                      value={cast.name}
-                      onChange={(event) =>
-                        updateCast(cast.id, { name: event.target.value })
-                      }
-                    />
-                  </label>
-                  <label className="record-field">
-                    <span>読み仮名</span>
-                    <input
-                      value={cast.kana}
-                      onChange={(event) =>
-                        updateCast(cast.id, { kana: event.target.value })
-                      }
-                    />
-                  </label>
-                </div>
-                <RecordField
-                  label="修正内容"
-                  value={cast.revision}
-                  onChange={(value) => updateCast(cast.id, { revision: value })}
-                />
-              </article>
-            ))}
-          </div>
-          <RecordField
-            label="共通の備考"
-            value={form.sharedNotes}
-            onChange={(value) => setForm({ ...form, sharedNotes: value })}
-          />
         </section>
+
+        {type === "ホスト特集" && (
+          <section className="record-card">
+            <div className="record-card-heading">
+              <div>
+                <span>02</span>
+                <h3>タイトル・本文</h3>
+              </div>
+              <button type="button" className="secondary-button" onClick={rerollTemplate}>本文テンプレを選び直す</button>
+            </div>
+            <div className="redmine-generator">
+              <p>地域・店名・キャスト名から自動で作成します（本文は①〜⑤のテンプレから、前回と被らないものをランダムに選択）。必要なら下の欄を直接編集できます。</p>
+              <button type="button" className="secondary-button" onClick={() => setOverrides({})}>自動生成に戻す</button>
+            </div>
+            <div className="redmine-title-fields">
+              <RecordField label="タイトル" value={hostTitle} onChange={(value) => setOverrides((current) => ({ ...current, title: value }))} />
+              <RecordField label="TOP表示用フリータイトル" value={hostTopTitle} onChange={(value) => setOverrides((current) => ({ ...current, topTitle: value }))} />
+              <RecordField label="本文" value={hostBody} onChange={(value) => setOverrides((current) => ({ ...current, body: value }))} />
+            </div>
+          </section>
+        )}
+
+        {type === "店内撮影" && (
+          <section className="record-card">
+            <div className="record-card-heading">
+              <div>
+                <span>02</span>
+                <h3>レタッチ内容</h3>
+              </div>
+              <button type="button" className="secondary-button" onClick={() => setForm({ ...form, retouch: DEFAULT_RETOUCH })}>初期の内容に戻す</button>
+            </div>
+            <div className="redmine-title-fields">
+              <RecordField label="レタッチ内容" value={form.retouch} onChange={(value) => setForm({ ...form, retouch: value })} />
+            </div>
+          </section>
+        )}
+
+        {showCasts && (
+          <section className="record-card">
+            <div className="record-card-heading">
+              <div>
+                <span>{type === "ホスト特集" ? "03" : "02"}</span>
+                <h3>{castSectionTitle}</h3>
+              </div>
+              {multiCast && (
+                <button type="button" className="primary-button" onClick={() => setCasts((current) => [...current, newRedmineCast()])}>＋ キャスト追加</button>
+              )}
+            </div>
+            {fetchError ? <p className="redmine-fetch-error">{fetchError}</p> : null}
+            <div className="cast-grid">
+              {visibleCasts.map((cast, index) => (
+                <article className="cast-card" key={cast.id}>
+                  <div className="cast-title">
+                    <strong>キャスト {index + 1}</strong>
+                    {multiCast && casts.length > 1 && (
+                      <button type="button" onClick={() => setCasts((current) => current.filter((item) => item.id !== cast.id))}>削除</button>
+                    )}
+                  </div>
+                  <label className="record-field">
+                    <span>キャストページURL</span>
+                    <div className="url-row">
+                      <input placeholder="Star-GuysのキャストURLを貼り付け" value={cast.url} onChange={(event) => updateCast(cast.id, { url: event.target.value })} />
+                      <button type="button" className="secondary-button" disabled={fetchingId === cast.id || !cast.url.trim()} onClick={() => void fetchCast(cast)}>
+                        {fetchingId === cast.id ? "取得中…" : "URLから取得"}
+                      </button>
+                    </div>
+                  </label>
+                  <div className="two-column">
+                    <label className="record-field">
+                      <span>名前</span>
+                      <input value={cast.name} onChange={(event) => updateCast(cast.id, { name: event.target.value })} />
+                    </label>
+                    <label className="record-field">
+                      <span>読み仮名</span>
+                      <input value={cast.kana} onChange={(event) => updateCast(cast.id, { kana: event.target.value })} />
+                    </label>
+                  </div>
+                  <RecordField
+                    label={type === "トップグラビア" ? "修正点" : type === "宣材" ? "コメント（空欄なら「宣材合わせ」）" : "修正内容"}
+                    value={cast.revision}
+                    onChange={(value) => updateCast(cast.id, { revision: value })}
+                  />
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
         <aside className="record-preview redmine-preview">
           <div className="preview-heading">
             <div>
-              <p className="eyebrow">TEXT TEMPLATE</p>
-              <h3>Redmine貼り付け用の完成文</h3>
+              <p className="eyebrow">SUBJECT</p>
+              <h3>Redmine題名</h3>
             </div>
-            <button className="primary-button" onClick={() => void copyText()}>
-              {copied ? "コピー済み ✓" : "Redmine文章をコピー"}
+            <button type="button" className="primary-button" onClick={() => void copy("subject", subject)}>
+              {copied === "subject" ? "コピー済み ✓" : "題名をコピー"}
             </button>
           </div>
-          <pre>{text}</pre>
+          <pre style={{ minHeight: 0 }}>{subject}</pre>
+          <div className="preview-heading" style={{ marginTop: 18 }}>
+            <div>
+              <p className="eyebrow">DESCRIPTION</p>
+              <h3>Redmine本文</h3>
+            </div>
+            <button type="button" className="primary-button" onClick={() => void copy("body", body)}>
+              {copied === "body" ? "コピー済み ✓" : "本文をコピー"}
+            </button>
+          </div>
+          <pre>{body}</pre>
         </aside>
       </div>
     </section>
